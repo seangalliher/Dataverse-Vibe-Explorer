@@ -10,11 +10,16 @@
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 
+<img width="1269" height="696" alt="Entry view" src="https://github.com/user-attachments/assets/8f1db404-b54c-4bee-914c-b20fea490834" />
+
+
 ## What Is This?
 
 Dataverse Vibe Explorer renders your Dataverse environment as a navigable 3D cityscape. Tables become glowing platforms, columns rise as pillars, and relationships arc between them as laser beams — all in a neon-noir aesthetic with bloom, particles, and cinematic camera controls.
 
 It connects to **live Dataverse metadata** when deployed as a Power Apps Code App, discovering real tables, columns, relationships, and apps from your environment. In local dev mode, it renders a rich mock dataset for development and demos.
+
+
 
 ### Key Features
 
