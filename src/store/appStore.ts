@@ -1,0 +1,181 @@
+import { create } from 'zustand'
+import { CDM_DOMAINS, type CDMDomain } from '@/utils/colors'
+import type { AppMetadata } from '@/data/metadata'
+
+export interface TableNode {
+  id: string
+  name: string
+  displayName: string
+  domain: CDMDomain
+  recordCount: number
+  position: [number, number, number]
+  columns: ColumnInfo[]
+  relationships: string[]
+}
+
+export interface ColumnInfo {
+  name: string
+  displayName: string
+  dataType: string
+  isRequired: boolean
+}
+
+export interface RelationshipEdge {
+  id: string
+  sourceTableId: string
+  targetTableId: string
+  type: 'one-to-many' | 'many-to-many'
+}
+
+export type CameraMode = 'fly' | 'orbit' | 'transition'
+
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'agent'
+  content: string
+  timestamp: number
+}
+
+interface AppState {
+  // Scene
+  tables: TableNode[]
+  relationships: RelationshipEdge[]
+  apps: AppMetadata[]
+  setTables: (tables: TableNode[]) => void
+  addTables: (tables: TableNode[]) => void
+  setRelationships: (rels: RelationshipEdge[]) => void
+  addRelationships: (rels: RelationshipEdge[]) => void
+  setApps: (apps: AppMetadata[]) => void
+
+  // Sync
+  isSyncing: boolean
+  setIsSyncing: (syncing: boolean) => void
+  syncProgress: number
+  syncPhase: string
+  setSyncProgress: (progress: number, phase: string) => void
+  syncTotal: number
+  syncLoaded: number
+  setSyncCounts: (loaded: number, total: number) => void
+
+  // Visibility filters
+  visibleDomains: Set<CDMDomain>
+  setVisibleDomains: (domains: Set<CDMDomain>) => void
+  hiddenTableIds: Set<string>
+  toggleTableVisibility: (id: string) => void
+  showAllTables: () => void
+
+  // Selection
+  selectedTableId: string | null
+  hoveredTableId: string | null
+  setSelectedTable: (id: string | null) => void
+  setHoveredTable: (id: string | null) => void
+
+  // Camera
+  cameraMode: CameraMode
+  setCameraMode: (mode: CameraMode) => void
+  flyToTarget: { position: [number, number, number]; lookAt: [number, number, number] } | null
+  setFlyToTarget: (target: { position: [number, number, number]; lookAt: [number, number, number] } | null) => void
+
+  // UI
+  searchOpen: boolean
+  setSearchOpen: (open: boolean) => void
+  hudVisible: boolean
+  setHudVisible: (visible: boolean) => void
+  minimapOpen: boolean
+  setMinimapOpen: (open: boolean) => void
+  loadingProgress: number
+  loadingPhase: string
+  setLoading: (progress: number, phase: string) => void
+  loaded: boolean
+  setLoaded: (loaded: boolean) => void
+
+  // Agent / Chat
+  chatOpen: boolean
+  setChatOpen: (open: boolean) => void
+  chatMessages: ChatMessage[]
+  addChatMessage: (msg: ChatMessage) => void
+  agentThinking: boolean
+  setAgentThinking: (thinking: boolean) => void
+
+  // Navigation history
+  visitedPositions: Array<{ tableId: string; position: [number, number, number] }>
+  addVisited: (tableId: string, position: [number, number, number]) => void
+}
+
+export const useAppStore = create<AppState>((set) => ({
+  tables: [],
+  relationships: [],
+  apps: [],
+  setTables: (tables) => set({ tables }),
+  addTables: (newTables) =>
+    set((state) => {
+      const existing = new Set(state.tables.map((t) => t.id))
+      const unique = newTables.filter((t) => !existing.has(t.id))
+      return unique.length > 0 ? { tables: [...state.tables, ...unique] } : {}
+    }),
+  setRelationships: (rels) => set({ relationships: rels }),
+  addRelationships: (newRels) =>
+    set((state) => {
+      const existing = new Set(state.relationships.map((r) => r.id))
+      const unique = newRels.filter((r) => !existing.has(r.id))
+      return unique.length > 0 ? { relationships: [...state.relationships, ...unique] } : {}
+    }),
+  setApps: (apps) => set({ apps }),
+
+  isSyncing: false,
+  setIsSyncing: (syncing) => set({ isSyncing: syncing }),
+  syncProgress: 0,
+  syncPhase: '',
+  setSyncProgress: (progress, phase) => set({ syncProgress: progress, syncPhase: phase }),
+  syncTotal: 0,
+  syncLoaded: 0,
+  setSyncCounts: (loaded, total) => set({ syncLoaded: loaded, syncTotal: total }),
+
+  visibleDomains: new Set(CDM_DOMAINS),
+  setVisibleDomains: (domains) => set({ visibleDomains: domains }),
+  hiddenTableIds: new Set(),
+  toggleTableVisibility: (id) =>
+    set((state) => {
+      const next = new Set(state.hiddenTableIds)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return { hiddenTableIds: next }
+    }),
+  showAllTables: () => set({ hiddenTableIds: new Set(), visibleDomains: new Set(CDM_DOMAINS) }),
+
+  selectedTableId: null,
+  hoveredTableId: null,
+  setSelectedTable: (id) => set({ selectedTableId: id, hudVisible: id !== null }),
+  setHoveredTable: (id) => set({ hoveredTableId: id }),
+
+  cameraMode: 'fly',
+  setCameraMode: (mode) => set({ cameraMode: mode }),
+  flyToTarget: null,
+  setFlyToTarget: (target) => set({ flyToTarget: target, cameraMode: target ? 'transition' : 'fly' }),
+
+  searchOpen: false,
+  setSearchOpen: (open) => set({ searchOpen: open }),
+  hudVisible: false,
+  setHudVisible: (visible) => set({ hudVisible: visible }),
+  minimapOpen: true,
+  setMinimapOpen: (open) => set({ minimapOpen: open }),
+  loadingProgress: 0,
+  loadingPhase: 'Initializing...',
+  setLoading: (progress, phase) => set({ loadingProgress: progress, loadingPhase: phase }),
+  loaded: false,
+  setLoaded: (loaded) => set({ loaded }),
+
+  chatOpen: false,
+  setChatOpen: (open) => set({ chatOpen: open }),
+  chatMessages: [],
+  addChatMessage: (msg) =>
+    set((state) => ({ chatMessages: [...state.chatMessages, msg] })),
+  agentThinking: false,
+  setAgentThinking: (thinking) => set({ agentThinking: thinking }),
+
+  visitedPositions: [],
+  addVisited: (tableId, position) =>
+    set((state) => ({
+      visitedPositions: [...state.visitedPositions.slice(-9), { tableId, position }],
+    })),
+}))

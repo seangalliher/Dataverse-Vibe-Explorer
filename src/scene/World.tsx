@@ -1,0 +1,227 @@
+import { useEffect, useMemo, useState, useCallback } from 'react'
+import { Text } from '@react-three/drei'
+import { useAppStore, type TableNode } from '@/store/appStore'
+import { fetchTableMetadata, fetchRelationshipMetadata, fetchAppMetadata, discoverAllTables } from '@/data/metadata'
+import { buildSceneGraph, positionNewTables, getDomainBlockCenter } from '@/data/sceneGraph'
+import { CDM_DOMAINS, getDomainColors } from '@/utils/colors'
+import { getConfig } from '@/data/dataverse'
+import type { VibeCreationState } from '@/agent/vibeActions'
+import { Skybox } from './Skybox'
+import { GridFloor } from './GridFloor'
+import { ParticleField } from './ParticleField'
+import { Platform } from './Platform'
+import { RelationshipBeam } from './RelationshipBeam'
+import { AppPortal } from './AppPortal'
+import { BreadcrumbTrail } from './BreadcrumbTrail'
+import { AgentAvatar } from './AgentAvatar'
+import { MaterializationEffect } from './MaterializationEffect'
+
+export function World() {
+  const {
+    tables, relationships,
+    setTables, addTables, setRelationships, addRelationships,
+    setLoading, setLoaded,
+    setIsSyncing, setSyncProgress, setSyncCounts,
+  } = useAppStore()
+  const apps = useAppStore((s) => s.apps)
+  const setApps = useAppStore((s) => s.setApps)
+  const visibleDomains = useAppStore((s) => s.visibleDomains)
+  const hiddenTableIds = useAppStore((s) => s.hiddenTableIds)
+  const [vibeState, setVibeState] = useState<VibeCreationState>({ phase: 'idle', appName: '', progress: 0, targetPosition: [0, 0, 0] })
+
+  // Filter visible tables
+  const visibleTables = useMemo(
+    () => tables.filter((t) => visibleDomains.has(t.domain) && !hiddenTableIds.has(t.id)),
+    [tables, visibleDomains, hiddenTableIds],
+  )
+
+  // Filter visible relationships (both endpoints must be visible)
+  const visibleRelationships = useMemo(() => {
+    const visibleIds = new Set(visibleTables.map((t) => t.id))
+    return relationships.filter(
+      (r) => visibleIds.has(r.sourceTableId) && visibleIds.has(r.targetTableId),
+    )
+  }, [relationships, visibleTables])
+
+  // Background discovery
+  const startDiscovery = useCallback(async () => {
+    if (getConfig().useMock) return
+
+    const store = useAppStore.getState()
+    const existingNames = new Set(store.tables.map((t) => t.id))
+
+    setIsSyncing(true)
+    setSyncProgress(0, 'Starting table discovery...')
+
+    await discoverAllTables(
+      existingNames,
+      (batchMeta) => {
+        const currentTables = useAppStore.getState().tables
+        const newNodes = positionNewTables(batchMeta, currentTables)
+        if (newNodes.length > 0) {
+          addTables(newNodes)
+        }
+      },
+      (loaded, total, phase) => {
+        setSyncProgress(loaded, phase)
+        setSyncCounts(loaded, total)
+      },
+    )
+
+    setIsSyncing(false)
+  }, [addTables, setIsSyncing, setSyncProgress, setSyncCounts])
+
+  // Expose startDiscovery globally for the agent
+  useEffect(() => {
+    (window as any).__dveSyncTables = startDiscovery
+    return () => { delete (window as any).__dveSyncTables }
+  }, [startDiscovery])
+
+  // Load data with cinematic loading sequence
+  useEffect(() => {
+    const loadSequence = async () => {
+      setLoading(10, 'Connecting to Dataverse...')
+      await sleep(500)
+
+      setLoading(20, 'Fetching table metadata...')
+      const tableMeta = await fetchTableMetadata()
+      await sleep(300)
+
+      setLoading(40, 'Mapping relationships...')
+      const relMeta = await fetchRelationshipMetadata()
+      await sleep(300)
+
+      setLoading(55, 'Classifying CDM domains...')
+      await sleep(400)
+
+      setLoading(70, 'Computing city grid layout...')
+      const sceneGraph = buildSceneGraph(tableMeta, relMeta)
+      await sleep(300)
+
+      setTables(sceneGraph.tables)
+      setRelationships(sceneGraph.relationships)
+
+      setLoading(85, 'Discovering applications...')
+      const appMeta = await fetchAppMetadata()
+      setApps(appMeta)
+      await sleep(300)
+
+      setLoading(95, 'Rendering 3D world...')
+      await sleep(400)
+
+      setLoading(100, 'Ready')
+      await sleep(200)
+      setLoaded(true)
+
+      // Start background discovery of additional tables
+      startDiscovery()
+    }
+
+    loadSequence()
+  }, [setTables, setRelationships, setLoading, setLoaded, setApps, startDiscovery])
+
+  // Build lookup for relationship rendering
+  const tableMap = useMemo(() => {
+    const map = new Map<string, TableNode>()
+    for (const t of tables) map.set(t.id, t)
+    return map
+  }, [tables])
+
+  // Domain label positions — computed from actual table counts
+  const domainLabels = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const t of tables) {
+      counts.set(t.domain, (counts.get(t.domain) ?? 0) + 1)
+    }
+    return CDM_DOMAINS
+      .filter((d) => (counts.get(d) ?? 0) > 0)
+      .map((domain) => ({
+        domain,
+        position: getDomainBlockCenter(domain, counts.get(domain) ?? 0),
+        count: counts.get(domain) ?? 0,
+      }))
+  }, [tables])
+
+  return (
+    <>
+      <Skybox />
+      <GridFloor />
+      <ParticleField />
+
+      {/* Domain block labels */}
+      {domainLabels.map(({ domain, position, count }) => (
+        <Text
+          key={domain}
+          position={position}
+          fontSize={1.0}
+          color={getDomainColors(domain).accent}
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.02}
+          outlineColor="#000000"
+          fillOpacity={visibleDomains.has(domain) ? 0.5 : 0.15}
+        >
+          {`${domain.toUpperCase()} (${count})`}
+        </Text>
+      ))}
+
+      {/* Table Platforms — only visible ones */}
+      {visibleTables.map((table) => (
+        <Platform
+          key={table.id}
+          id={table.id}
+          name={table.displayName}
+          domain={table.domain}
+          position={table.position}
+          recordCount={table.recordCount}
+          columns={table.columns}
+        />
+      ))}
+
+      {/* Relationship Beams — only between visible tables */}
+      {visibleRelationships.map((rel) => {
+        const source = tableMap.get(rel.sourceTableId)
+        const target = tableMap.get(rel.targetTableId)
+        if (!source || !target) return null
+
+        return (
+          <RelationshipBeam
+            key={rel.id}
+            sourcePosition={source.position}
+            targetPosition={target.position}
+            sourceDomain={source.domain}
+            type={rel.type}
+            sourceTableId={rel.sourceTableId}
+            targetTableId={rel.targetTableId}
+          />
+        )
+      })}
+
+      {/* App Portals */}
+      {apps.map((app, i) => (
+        <AppPortal
+          key={app.id}
+          app={app}
+          index={i}
+          tableMap={tableMap}
+        />
+      ))}
+
+      {/* Breadcrumb Trail */}
+      <BreadcrumbTrail />
+
+      {/* AI Agent Avatar */}
+      <AgentAvatar />
+
+      {/* Vibe Coding Materialization */}
+      <MaterializationEffect state={vibeState} />
+
+      {/* Ambient light */}
+      <ambientLight intensity={0.15} />
+    </>
+  )
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}

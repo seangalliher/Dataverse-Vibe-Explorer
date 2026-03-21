@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "appId": "748913bc-8b64-446a-8afd-ef9b315564c2",
+  "appDisplayName": "Dataverse Vibe Explorer",
+  "region": "prod",
+  "environmentId": "74e044ee-c9a4-eb11-b7eb-064361b18b09",
+  "description": "Immersive 3D Dataverse exploration experience",
+  "buildPath": "./dist",
+  "buildEntryPoint": "index.html",
+  "localAppUrl": "http://localhost:3000",
+  "logoPath": "Default",
+  "connectionReferences": {},
+  "databaseReferences": {}
+}
