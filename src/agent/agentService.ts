@@ -3,6 +3,7 @@
  * and processes agent commands for exploration and creation.
  */
 import { useAppStore, type TableNode, type ChatMessage } from '@/store/appStore'
+import { formatRecordCount } from '@/data/dataverse'
 
 export type AgentCommand =
   | { type: 'navigate'; target: string }
@@ -92,7 +93,7 @@ export async function executeCommand(
         return { response: `I couldn't find a table matching "${command.target}". Try searching for a specific table name.` }
       }
       return {
-        response: `Flying to **${table.displayName}** (${table.recordCount.toLocaleString()} records) in the ${table.domain} district.`,
+        response: `Flying to **${table.displayName}** (${formatRecordCount(table.recordCount)} records) in the ${table.domain} district.`,
         action: () => {
           setSelectedTable(table.id)
           setFlyToTarget({
@@ -113,7 +114,7 @@ export async function executeCommand(
         (r) => r.sourceTableId === table.id || r.targetTableId === table.id,
       ).length
       return {
-        response: `## ${table.displayName}\n\n**Domain:** ${table.domain} | **Records:** ${table.recordCount.toLocaleString()} | **Relationships:** ${relCount}\n\n**Key Columns:**\n${cols}`,
+        response: `## ${table.displayName}\n\n**Domain:** ${table.domain} | **Records:** ${formatRecordCount(table.recordCount)} | **Relationships:** ${relCount}\n\n**Key Columns:**\n${cols}`,
         action: () => {
           setSelectedTable(table.id)
           setFlyToTarget({
@@ -179,7 +180,7 @@ export async function executeCommand(
         const sorted = [...tables].sort((a, b) => b.recordCount - a.recordCount)
         const top3 = sorted.slice(0, 3)
         return {
-          response: `The tables with the most records:\n\n${top3.map((t, i) => `${i + 1}. **${t.displayName}** — ${t.recordCount.toLocaleString()} records`).join('\n')}`,
+          response: `The tables with the most records:\n\n${top3.map((t, i) => `${i + 1}. **${t.displayName}** — ${formatRecordCount(t.recordCount)} records`).join('\n')}`,
           action: () => {
             setSelectedTable(top3[0].id)
             setFlyToTarget({

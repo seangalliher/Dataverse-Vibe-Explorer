@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { getDomainColors } from '@/utils/colors'
+import { formatRecordCount } from '@/data/dataverse'
 
 export function HoverTooltip() {
   const hoveredTableId = useAppStore((s) => s.hoveredTableId)
@@ -44,7 +45,7 @@ export function HoverTooltip() {
         {table.displayName}
       </div>
       <div style={{ color: '#94a3b8', fontSize: 10 }}>
-        {table.domain} &middot; {table.recordCount.toLocaleString()} records &middot; {table.columns.length} columns
+        {table.domain} &middot; {formatRecordCount(table.recordCount)} records &middot; {table.columns.length} columns
       </div>
     </div>
   )

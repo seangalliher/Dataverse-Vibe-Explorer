@@ -3,7 +3,7 @@
  * Retrieves table definitions, column schemas, and relationship metadata.
  * Uses the Power Apps SDK bridge for authenticated access inside Code Apps.
  */
-import { getConfig, getDataClient, fetchEntityMetadataViaSDK, sdkRetrieveMultiple, fetchRecordCount } from './dataverse'
+import { getConfig, getDataClient, fetchEntityMetadataViaSDK, sdkRetrieveMultiple, fetchRecordCount, getWebApiStatus, getBridgeCountStatus } from './dataverse'
 
 export interface TableMetadata {
   logicalName: string
@@ -104,13 +104,11 @@ export async function fetchTableMetadata(): Promise<TableMetadata[]> {
 
       if (results.length > 0) {
         console.log(`[Dataverse] Loaded ${results.length} tables via SDK`)
-        // Fetch record counts in parallel
-        await Promise.allSettled(
-          results.map(async (t) => {
-            const count = await fetchRecordCount(t.logicalName, t.entitySetName, t.primaryIdAttribute)
-            t.recordCount = count
-          }),
-        )
+        // Fetch record counts sequentially — bail after first failure
+        for (const t of results) {
+          if (getWebApiStatus() === 'blocked' && getBridgeCountStatus() === 'failed') break
+          t.recordCount = await fetchRecordCount(t.logicalName, t.entitySetName, t.primaryIdAttribute)
+        }
         console.log(`[Dataverse] Record counts loaded`)
         return results
       }
@@ -381,12 +379,11 @@ export async function discoverAllTables(
     }
 
     if (batchResults.length > 0) {
-      // Fetch record counts for this batch
-      await Promise.allSettled(
-        batchResults.map(async (t) => {
-          t.recordCount = await fetchRecordCount(t.logicalName, t.entitySetName, t.primaryIdAttribute)
-        }),
-      )
+      // Fetch record counts sequentially — bail after first failure
+      for (const t of batchResults) {
+        if (getWebApiStatus() === 'blocked' && getBridgeCountStatus() === 'failed') break
+        t.recordCount = await fetchRecordCount(t.logicalName, t.entitySetName, t.primaryIdAttribute)
+      }
       totalLoaded += batchResults.length
       onBatch(batchResults)
     }

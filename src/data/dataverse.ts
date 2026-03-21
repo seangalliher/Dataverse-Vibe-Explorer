@@ -4,10 +4,14 @@
  * for authenticated Dataverse access via the host bridge.
  * Falls back to mock data in local dev.
  *
- * NOTE: The Code Apps SDK bridge only supports executeAsync with 'getEntityMetadata'.
- * Data retrieval methods (retrieveMultipleRecordsAsync, retrieveRecordAsync) and
- * other executeAsync actions all return "Unsupported Dataverse action".
- * Record counts use estimates based on table type since live counts are unavailable.
+ * Bridge capabilities (as of March 2026):
+ * - retrieveMultipleRecordsAsync: WORKS (any table, no registration needed)
+ * - retrieveRecordAsync: WORKS
+ * - createRecordAsync / updateRecordAsync / deleteRecordAsync: WORKS
+ * - executeAsync with 'getEntityMetadata': WORKS
+ * - count: true option: BREAKS all queries (bridge rejects $count param)
+ * - Direct Web API fetch: BLOCKED by CORS from iframe
+ * Record counts use estimates since $count is not supported through the bridge.
  */
 
 export interface DataverseConfig {
@@ -22,8 +26,25 @@ let config: DataverseConfig = {
   environmentId: '',
 }
 
+// Org URL embedded at build time via VITE_DATAVERSE_ORG_URL (set by deploy script)
+const BUILD_TIME_ORG_URL = (import.meta as any).env?.VITE_DATAVERSE_ORG_URL ?? ''
+
 // SDK data client — set during init when running inside Power Apps
 let dataClient: any = null
+
+// Current user info from Power Apps context
+let currentUser: { id: string; displayName: string } | null = null
+
+// Tracks whether direct Web API calls work (set after first successful fetch)
+let webApiStatus: 'untested' | 'available' | 'blocked' = 'untested'
+
+export function getWebApiStatus() {
+  return webApiStatus
+}
+
+export function getCurrentUser() {
+  return currentUser
+}
 
 /**
  * Initialize the Dataverse connection.
@@ -31,6 +52,15 @@ let dataClient: any = null
  * switches to live mode. Uses dynamic import so a missing SDK can't crash the app.
  */
 export async function initializeDataverse(): Promise<void> {
+  // Restore org URL: localStorage > build-time embed
+  try {
+    const savedUrl = localStorage.getItem('dve-orgUrl')
+    if (savedUrl) config.orgUrl = savedUrl
+  } catch { /* localStorage may not be available */ }
+  if (!config.orgUrl && BUILD_TIME_ORG_URL) {
+    config.orgUrl = BUILD_TIME_ORG_URL
+  }
+
   try {
     const { getContext } = await import('@microsoft/power-apps/app')
 
@@ -42,6 +72,13 @@ export async function initializeDataverse(): Promise<void> {
     if (ctx?.app?.environmentId) {
       config.useMock = false
       config.environmentId = ctx.app.environmentId
+      // Capture user info for preferences
+      if (ctx.user?.userPrincipalName) {
+        currentUser = {
+          id: ctx.user.userPrincipalName,
+          displayName: ctx.user.fullName ?? ctx.user.userPrincipalName,
+        }
+      }
       console.log('[Dataverse] Connected via Power Apps host', {
         env: ctx.app.environmentId,
         user: ctx.user?.userPrincipalName,
@@ -55,6 +92,7 @@ export async function initializeDataverse(): Promise<void> {
       } catch (err) {
         console.warn('[Dataverse] SDK data client init failed:', err)
       }
+
       return
     }
   } catch (err) {
@@ -114,8 +152,8 @@ export async function fetchEntityMetadataViaSDK(tableName: string): Promise<any>
 
 /**
  * Fetch multiple records using the SDK.
- * NOTE: This does not work in the Code Apps bridge (returns "Unsupported Dataverse action").
- * Kept for potential future use if the bridge adds data retrieval support.
+ * Works for any Dataverse table via the bridge — no pac code add-data-source registration needed.
+ * Note: do NOT pass count: true — it causes the bridge to reject the entire query.
  */
 export async function sdkRetrieveMultiple(tableName: string, options?: string): Promise<any> {
   if (!dataClient) return null
@@ -155,10 +193,99 @@ export async function dataverseFetch<T>(endpoint: string): Promise<T> {
   return response.json() as Promise<T>
 }
 
+// Tracks whether bridge-based record counts are available
+let bridgeCountStatus: 'untested' | 'available' | 'failed' = 'untested'
+
+export function getBridgeCountStatus() {
+  return bridgeCountStatus
+}
+
 /**
- * Estimated record counts for well-known Dataverse/D365 tables.
- * The Code Apps SDK bridge only supports getEntityMetadata — no data retrieval —
- * so we use reasonable estimates to give the 3D visualization meaningful block sizing.
+ * Fetch a record count via the SDK bridge by selecting only primary IDs.
+ * Pages through results for exact counts. Returns null if the bridge call fails.
+ */
+async function fetchCountViaBridge(
+  entitySetName: string,
+  primaryIdAttribute: string,
+): Promise<number | null> {
+  if (!dataClient || config.useMock) return null
+
+  try {
+    const PAGE_SIZE = 5000
+    let total = 0
+    let skipToken: string | undefined
+
+    // First page
+    const r = await dataClient.retrieveMultipleRecordsAsync(entitySetName, {
+      top: PAGE_SIZE,
+      select: [primaryIdAttribute],
+    })
+
+    if (!r.success) {
+      if (bridgeCountStatus === 'untested') {
+        bridgeCountStatus = 'failed'
+        console.warn('[Dataverse] Bridge record counts unavailable')
+      }
+      return null
+    }
+
+    if (bridgeCountStatus === 'untested') {
+      bridgeCountStatus = 'available'
+    }
+
+    total += r.data?.length ?? 0
+    skipToken = r.skipToken
+
+    // Page through remaining records
+    while (skipToken && total < 100_000) {
+      const next = await dataClient.retrieveMultipleRecordsAsync(entitySetName, {
+        top: PAGE_SIZE,
+        select: [primaryIdAttribute],
+        skipToken,
+      })
+      if (!next.success || !next.data?.length) break
+      total += next.data.length
+      skipToken = next.skipToken
+    }
+
+    return total
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Refresh record counts for a list of tables via the SDK bridge.
+ * Fetches counts sequentially to avoid overwhelming the bridge.
+ */
+export async function refreshRecordCountsViaBridge(
+  tables: Array<{ logicalName: string; entitySetName: string; primaryIdAttribute: string }>,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>()
+  if (!dataClient || config.useMock) return counts
+
+  bridgeCountStatus = 'untested'
+
+  for (let i = 0; i < tables.length; i++) {
+    const t = tables[i]
+    onProgress?.(i, tables.length)
+
+    const count = await fetchCountViaBridge(t.entitySetName, t.primaryIdAttribute)
+    if (count !== null) {
+      counts.set(t.logicalName, count)
+    }
+
+    // If first attempt failed, stop trying
+    if ((bridgeCountStatus as string) === 'failed') break
+  }
+
+  onProgress?.(tables.length, tables.length)
+  return counts
+}
+
+/**
+ * Estimated record counts — fallback when bridge and Web API are both unavailable.
  */
 const ESTIMATED_COUNTS: Record<string, number> = {
   // High-volume tables
@@ -303,19 +430,137 @@ const ESTIMATED_COUNTS: Record<string, number> = {
 }
 
 /**
- * Return an estimated record count for a table.
- * Uses a lookup table of typical counts since the Code Apps SDK bridge
- * doesn't support data retrieval operations.
+ * Attempt to fetch a record count via direct Dataverse Web API.
+ * First tries without credentials (compatible with Access-Control-Allow-Origin: *),
+ * then with credentials if the server requires auth cookies.
+ * Returns null if the request fails (CORS, auth, etc.).
  */
-export async function fetchRecordCount(logicalName: string, _entitySetName: string, _primaryIdAttr?: string): Promise<number> {
+async function fetchCountViaWebAPI(entitySetName: string): Promise<number | null> {
+  // Inside Code Apps iframe, Web API is impossible (no-cred→401, cred→CORS blocked)
+  if (config.environmentId) return null
+  if (!config.orgUrl || webApiStatus === 'blocked') return null
+
+  const url = `${config.orgUrl}/api/data/v9.2/${entitySetName}?$count=true&$top=0`
+  const headers = {
+    Accept: 'application/json',
+    'OData-MaxVersion': '4.0',
+    'OData-Version': '4.0',
+  }
+
+  // Try without credentials first — CORS wildcard (*) allows this
+  try {
+    const response = await fetch(url, { headers })
+    if (response.ok) {
+      const data = await response.json()
+      const count = data['@odata.count']
+      if (typeof count === 'number') {
+        if (webApiStatus === 'untested') {
+          webApiStatus = 'available'
+          console.log('[Dataverse] Web API record counts available (no-credential mode)')
+        }
+        return count
+      }
+    }
+    // 401/403 → try with credentials below
+  } catch {
+    // Network/CORS error without credentials — mark blocked immediately
+    if (webApiStatus === 'untested') {
+      webApiStatus = 'blocked'
+      console.warn('[Dataverse] Web API blocked (CORS) — using estimates')
+    }
+    return null
+  }
+
+  // Second attempt: with credentials (works when origin is explicitly allowed)
+  try {
+    const response = await fetch(url, { credentials: 'include', headers })
+    if (!response.ok) return null
+
+    const data = await response.json()
+    const count = data['@odata.count']
+    if (typeof count === 'number') {
+      if (webApiStatus === 'untested') {
+        webApiStatus = 'available'
+        console.log('[Dataverse] Web API record counts available (credential mode)')
+      }
+      return count
+    }
+    return null
+  } catch {
+    if (webApiStatus === 'untested') {
+      webApiStatus = 'blocked'
+      console.warn('[Dataverse] Web API blocked (CORS with credentials) — using estimates')
+    }
+    return null
+  }
+}
+
+/**
+ * Return a record count for a table.
+ * Priority: bridge (Code Apps) > Web API (standalone) > estimates.
+ */
+export async function fetchRecordCount(logicalName: string, entitySetName: string, primaryIdAttr?: string): Promise<number> {
   if (config.useMock) return 0
 
-  // Use estimated count from our lookup, or a default based on naming conventions
+  // Try bridge if inside Code Apps
+  if (dataClient && bridgeCountStatus !== 'failed') {
+    const idAttr = primaryIdAttr ?? `${logicalName}id`
+    const count = await fetchCountViaBridge(entitySetName, idAttr)
+    if (count !== null) return count
+  }
+
+  // Try Web API if org URL is set
+  if (config.orgUrl && webApiStatus !== 'blocked') {
+    const count = await fetchCountViaWebAPI(entitySetName)
+    if (count !== null) return count
+  }
+
+  // Fall back to estimates
   const estimate = ESTIMATED_COUNTS[logicalName]
   if (estimate !== undefined) return estimate
 
-  // For unknown tables, estimate based on naming patterns
   if (logicalName.startsWith('msdyn_')) return 500
   if (logicalName.startsWith('cr_') || logicalName.startsWith('new_')) return 200
   return 100
+}
+
+/**
+ * Format a record count for display.
+ * Shows "est." prefix when using estimates, no prefix for real counts (bridge or Web API).
+ */
+export function formatRecordCount(count: number): string {
+  if (count === 0) return '0'
+  if (!config.useMock && webApiStatus !== 'available' && bridgeCountStatus !== 'available') {
+    return `est. ${count.toLocaleString()}`
+  }
+  return count.toLocaleString()
+}
+
+/**
+ * Refresh record counts for a list of tables via Web API.
+ * Returns a map of logicalName → count for tables that were successfully fetched.
+ */
+export async function refreshRecordCounts(
+  tables: Array<{ logicalName: string; entitySetName: string }>,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>()
+  if (!config.orgUrl || config.environmentId) return counts
+
+  // Reset status so we re-test
+  webApiStatus = 'untested'
+
+  for (let i = 0; i < tables.length; i++) {
+    const t = tables[i]
+    onProgress?.(i, tables.length)
+    const count = await fetchCountViaWebAPI(t.entitySetName)
+    if (count !== null) {
+      counts.set(t.logicalName, count)
+    }
+    // If first attempt was blocked, stop trying
+    if ((webApiStatus as string) === 'blocked') break
+  }
+
+  onProgress?.(tables.length, tables.length)
+  return counts
 }

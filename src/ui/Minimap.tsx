@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { getDomainColors } from '@/utils/colors'
+import { formatRecordCount } from '@/data/dataverse'
 
 export function Minimap() {
   const { tables, minimapOpen, setMinimapOpen, selectedTableId, setFlyToTarget, setSelectedTable } = useAppStore()
@@ -194,7 +195,7 @@ export function Minimap() {
             {hoveredTable.displayName}
           </div>
           <div style={{ color: '#94a3b8', fontSize: 9 }}>
-            {hoveredTable.domain} &middot; {hoveredTable.recordCount.toLocaleString()} records
+            {hoveredTable.domain} &middot; {formatRecordCount(hoveredTable.recordCount)} records
           </div>
         </div>
       )}

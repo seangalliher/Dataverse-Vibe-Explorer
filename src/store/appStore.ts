@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { CDM_DOMAINS, type CDMDomain } from '@/utils/colors'
 import type { AppMetadata } from '@/data/metadata'
+import type { UserPreferences } from '@/data/cacheService'
 
 export interface TableNode {
   id: string
@@ -100,6 +101,17 @@ interface AppState {
   // Navigation history
   visitedPositions: Array<{ tableId: string; position: [number, number, number] }>
   addVisited: (tableId: string, position: [number, number, number]) => void
+
+  // Org URL for direct Web API
+  orgUrl: string
+  setOrgUrl: (url: string) => void
+  updateTableCounts: (counts: Map<string, number>) => void
+
+  // Persisted user preferences
+  preferencesLoaded: boolean
+  userPreferences: UserPreferences | null
+  setUserPreferences: (prefs: UserPreferences) => void
+  applyPreferences: (prefs: UserPreferences) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -178,4 +190,40 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => ({
       visitedPositions: [...state.visitedPositions.slice(-9), { tableId, position }],
     })),
+
+  orgUrl: '',
+  setOrgUrl: (url) => set({ orgUrl: url }),
+  updateTableCounts: (counts) =>
+    set((state) => ({
+      tables: state.tables.map((t) => {
+        const newCount = counts.get(t.id)
+        return newCount !== undefined ? { ...t, recordCount: newCount } : t
+      }),
+    })),
+
+  preferencesLoaded: false,
+  userPreferences: null,
+  setUserPreferences: (prefs) => set({ userPreferences: prefs, preferencesLoaded: true }),
+  applyPreferences: (prefs) =>
+    set((state) => {
+      const updates: Partial<AppState> = {
+        userPreferences: prefs,
+        preferencesLoaded: true,
+      }
+      // Apply org URL from per-user prefs only if no org-wide URL is already set
+      if (prefs.orgUrl && !state.orgUrl) {
+        updates.orgUrl = prefs.orgUrl
+      }
+      // Apply hidden domains
+      if (prefs.hiddenDomains.length > 0) {
+        const allDomains = new Set(CDM_DOMAINS)
+        for (const d of prefs.hiddenDomains) allDomains.delete(d as CDMDomain)
+        updates.visibleDomains = allDomains
+      }
+      // Apply hidden table IDs
+      if (prefs.hiddenTableIds.length > 0) {
+        updates.hiddenTableIds = new Set(prefs.hiddenTableIds)
+      }
+      return updates
+    }),
 }))

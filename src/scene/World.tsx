@@ -4,7 +4,8 @@ import { useAppStore, type TableNode } from '@/store/appStore'
 import { fetchTableMetadata, fetchRelationshipMetadata, fetchAppMetadata, discoverAllTables } from '@/data/metadata'
 import { buildSceneGraph, positionNewTables, getDomainBlockCenter } from '@/data/sceneGraph'
 import { CDM_DOMAINS, getDomainColors } from '@/utils/colors'
-import { getConfig } from '@/data/dataverse'
+import { getConfig, configureDataverse, refreshRecordCountsViaBridge } from '@/data/dataverse'
+import { loadCachedTables, saveCachedTables, loadOrgUrl, updateCachedRecordCounts } from '@/data/cacheService'
 import type { VibeCreationState } from '@/agent/vibeActions'
 import { Skybox } from './Skybox'
 import { GridFloor } from './GridFloor'
@@ -53,6 +54,8 @@ export function World() {
     setIsSyncing(true)
     setSyncProgress(0, 'Starting table discovery...')
 
+    const allDiscovered: import('@/data/metadata').TableMetadata[] = []
+
     await discoverAllTables(
       existingNames,
       (batchMeta) => {
@@ -61,6 +64,7 @@ export function World() {
         if (newNodes.length > 0) {
           addTables(newNodes)
         }
+        allDiscovered.push(...batchMeta)
       },
       (loaded, total, phase) => {
         setSyncProgress(loaded, phase)
@@ -69,7 +73,52 @@ export function World() {
     )
 
     setIsSyncing(false)
+
+    // Save all discovered tables to cache
+    if (allDiscovered.length > 0) {
+      saveCachedTables(allDiscovered).catch(() => {})
+    }
   }, [addTables, setIsSyncing, setSyncProgress, setSyncCounts])
+
+  // Background record count refresh via bridge
+  const refreshBridgeCounts = useCallback(async () => {
+    // Wait for discovery to finish so we count all tables
+    await new Promise<void>((resolve) => {
+      const check = () => {
+        if (!useAppStore.getState().isSyncing) return resolve()
+        setTimeout(check, 2000)
+      }
+      check()
+    })
+
+    // Load table metadata from cache to get entitySetName and primaryIdAttribute
+    const cachedMeta = await loadCachedTables()
+    if (cachedMeta.length === 0) return
+
+    const tablesToCount = cachedMeta.map((t) => ({
+      logicalName: t.logicalName,
+      entitySetName: t.entitySetName,
+      primaryIdAttribute: t.primaryIdAttribute,
+    }))
+
+    console.log(`[World] Starting background count refresh for ${tablesToCount.length} tables...`)
+
+    const counts = await refreshRecordCountsViaBridge(
+      tablesToCount,
+      (loaded, total) => {
+        if (loaded % 10 === 0 || loaded === total) {
+          console.log(`[World] Record counts: ${loaded}/${total}`)
+        }
+      },
+    )
+
+    if (counts.size > 0) {
+      console.log(`[World] Got real counts for ${counts.size} tables`)
+      useAppStore.getState().updateTableCounts(counts)
+      // Persist to shared cache
+      updateCachedRecordCounts(counts).catch(() => {})
+    }
+  }, [])
 
   // Expose startDiscovery globally for the agent
   useEffect(() => {
@@ -83,9 +132,31 @@ export function World() {
       setLoading(10, 'Connecting to Dataverse...')
       await sleep(500)
 
-      setLoading(20, 'Fetching table metadata...')
-      const tableMeta = await fetchTableMetadata()
-      await sleep(300)
+      // Try loading from cache first for instant display
+      setLoading(15, 'Checking cache...')
+      const cachedMeta = await loadCachedTables()
+
+      // Load org-wide org URL (entered once, shared across all users)
+      const orgUrl = await loadOrgUrl()
+      if (orgUrl) {
+        configureDataverse({ orgUrl })
+        useAppStore.getState().setOrgUrl(orgUrl)
+        console.log('[World] Org URL loaded from shared config:', orgUrl)
+      }
+
+      let tableMeta
+      let usedCache = false
+
+      if (cachedMeta.length > 0) {
+        console.log(`[World] Using ${cachedMeta.length} cached tables for instant display`)
+        tableMeta = cachedMeta
+        usedCache = true
+        setLoading(40, 'Loaded from cache!')
+      } else {
+        setLoading(20, 'Fetching table metadata...')
+        tableMeta = await fetchTableMetadata()
+        await sleep(300)
+      }
 
       setLoading(40, 'Mapping relationships...')
       const relMeta = await fetchRelationshipMetadata()
@@ -115,6 +186,16 @@ export function World() {
 
       // Start background discovery of additional tables
       startDiscovery()
+
+      // If we didn't use cache, save the freshly fetched metadata
+      if (!usedCache && !getConfig().useMock) {
+        saveCachedTables(tableMeta).catch(() => {})
+      }
+
+      // Background: refresh record counts via bridge and update cache
+      if (!getConfig().useMock) {
+        refreshBridgeCounts()
+      }
     }
 
     loadSequence()

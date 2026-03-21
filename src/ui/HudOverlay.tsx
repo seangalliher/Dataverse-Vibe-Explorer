@@ -1,4 +1,5 @@
 import { useAppStore } from '@/store/appStore'
+import { formatRecordCount } from '@/data/dataverse'
 
 export function HudOverlay() {
   const { selectedTableId, tables, loaded, setSelectedTable } = useAppStore()
@@ -115,7 +116,7 @@ export function HudOverlay() {
               borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
             }}
           >
-            <Stat label="Records" value={selectedTable.recordCount.toLocaleString()} />
+            <Stat label="Records" value={formatRecordCount(selectedTable.recordCount)} />
             <Stat label="Columns" value={String(selectedTable.columns.length)} />
             <Stat label="Domain" value={selectedTable.domain} />
           </div>

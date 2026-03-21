@@ -10,5 +10,23 @@
   "localAppUrl": "http://localhost:3000",
   "logoPath": "Default",
   "connectionReferences": {},
-  "databaseReferences": {}
+  "databaseReferences": {
+    "default.cds": {
+      "dataSources": {
+        "dvetablecaches": {
+          "entitySetName": "dve_tablecaches",
+          "logicalName": "dve_tablecache"
+        },
+        "dveuserpreferences": {
+          "entitySetName": "dve_userpreferences",
+          "logicalName": "dve_userpreference"
+        },
+        "accounts": {
+          "entitySetName": "accounts",
+          "logicalName": "account"
+        }
+      },
+      "environmentVariableName": ""
+    }
+  }
 }

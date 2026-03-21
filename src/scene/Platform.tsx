@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import { Float, Text } from '@react-three/drei'
 import * as THREE from 'three'
 import type { CDMDomain } from '@/utils/colors'
+import { formatRecordCount } from '@/data/dataverse'
 import { getDomainColors } from '@/utils/colors'
 import { useAppStore } from '@/store/appStore'
 import { Pillar } from './Pillar'
@@ -151,7 +152,7 @@ export function Platform({ id, name, domain, position, recordCount, columns }: P
           anchorX="center"
           anchorY="bottom"
         >
-          {recordCount.toLocaleString()} records
+          {formatRecordCount(recordCount)} records
         </Text>
 
         {/* Column pillars */}
