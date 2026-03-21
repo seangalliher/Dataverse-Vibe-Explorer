@@ -33,10 +33,11 @@ export function Toolbar() {
       style={{
         position: 'fixed',
         top: '1rem',
-        left: '1rem',
+        right: '1rem',
         zIndex: 50,
         display: 'flex',
         flexDirection: 'column',
+        alignItems: 'flex-end',
         gap: '6px',
       }}
     >

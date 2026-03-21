@@ -16,13 +16,12 @@ export default function SyncProgressBar() {
   return (
     <div style={{
       position: 'fixed',
-      bottom: 16,
-      left: '50%',
-      transform: 'translateX(-50%)',
+      bottom: '1.5rem',
+      left: '1rem',
       zIndex: 50,
       display: 'flex',
       flexDirection: 'column',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       gap: 6,
       pointerEvents: 'none',
     }}>

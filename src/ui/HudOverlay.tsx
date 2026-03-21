@@ -19,11 +19,12 @@ export function HudOverlay() {
           gap: '1.5rem',
           fontSize: '0.7rem',
           letterSpacing: '0.12em',
-          color: '#475569',
+          color: 'rgba(0, 200, 255, 0.6)',
           textTransform: 'uppercase',
           pointerEvents: 'none',
           transition: 'opacity 0.5s',
-          opacity: selectedTable ? 0.3 : 0.7,
+          opacity: selectedTable ? 0.3 : 0.85,
+          textShadow: '0 0 8px rgba(0, 200, 255, 0.3), 0 0 20px rgba(0, 200, 255, 0.1)',
         }}
       >
         <span>
@@ -208,9 +209,10 @@ function getDataTypeColor(dataType: string): string {
 const kbdStyle: React.CSSProperties = {
   display: 'inline-block',
   padding: '2px 6px',
-  border: '1px solid #334155',
+  border: '1px solid rgba(0, 200, 255, 0.25)',
   borderRadius: '4px',
   fontSize: '0.65rem',
-  background: 'rgba(255,255,255,0.03)',
+  background: 'rgba(0, 200, 255, 0.06)',
   marginRight: '4px',
+  boxShadow: '0 0 6px rgba(0, 200, 255, 0.15)',
 }
