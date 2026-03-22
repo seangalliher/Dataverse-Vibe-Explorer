@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppStore, type ChatMessage } from '@/store/appStore'
 import { processAgentMessage } from '@/agent/agentService'
+import { stopSpeaking } from '@/utils/tts'
 
 const SUGGESTED_PROMPTS = [
   'Give me a tour',
@@ -11,48 +12,18 @@ const SUGGESTED_PROMPTS = [
 ]
 
 export function ChatPanel() {
-  const { chatOpen, setChatOpen, chatMessages, addChatMessage, agentThinking } = useAppStore()
+  const { chatOpen, setChatOpen, chatMessages, addChatMessage, clearChatMessages, agentThinking } = useAppStore()
   const [input, setInput] = useState('')
+  const [listening, setListening] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-
-  // Tab key to toggle
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
-        // Only intercept if not in an input
-        if (document.activeElement?.tagName !== 'INPUT') {
-          e.preventDefault()
-          setChatOpen(!chatOpen)
-        }
-      }
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [chatOpen, setChatOpen])
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages])
-
-  useEffect(() => {
-    if (chatOpen && chatMessages.length === 0) {
-      // Welcome message
-      addChatMessage({
-        id: 'welcome',
-        role: 'agent',
-        content:
-          "Hello! I'm your Dataverse guide. I can help you explore tables, understand relationships, and even build new apps. What would you like to discover?",
-        timestamp: Date.now(),
-      })
-    }
-    if (chatOpen) {
-      setTimeout(() => inputRef.current?.focus(), 100)
-    }
-  }, [chatOpen])
+  const recognitionRef = useRef<any>(null)
+  const handleSendRef = useRef<(msg: string) => void>(() => {})
 
   const handleSend = async (message: string) => {
     if (!message.trim() || agentThinking) return
+
+    stopSpeaking() // Stop any TTS before new message
 
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -73,6 +44,130 @@ export function ChatPanel() {
     }
     addChatMessage(agentMsg)
   }
+
+  handleSendRef.current = handleSend
+
+  // Voice recognition — creates a fresh SpeechRecognition instance each time.
+  // IMPORTANT: recognition.start() must be called synchronously within the click
+  // handler, otherwise the browser won't treat it as a user gesture and may block mic.
+  const startListening = useCallback(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      console.warn('[Voice] SpeechRecognition API not available')
+      return
+    }
+
+    // Abort any previous recognition cleanly
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort() } catch (_) { /* ignore */ }
+      recognitionRef.current = null
+    }
+
+    stopSpeaking() // Stop any TTS in progress
+
+    try {
+      const recognition = new SpeechRecognition()
+      recognition.continuous = false
+      recognition.interimResults = true
+      recognition.lang = 'en-US'
+      recognition.maxAlternatives = 1
+
+      let finalTranscript = ''
+      let sent = false
+
+      recognition.onstart = () => {
+        console.log('[Voice] Listening started')
+        setListening(true)
+        setInput('')
+      }
+      recognition.onresult = (event: any) => {
+        let interim = ''
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript
+          if (event.results[i].isFinal) {
+            finalTranscript = transcript
+            console.log(`[Voice] Final: "${transcript}" (${(event.results[i][0].confidence * 100).toFixed(0)}%)`)
+          } else {
+            interim = transcript
+          }
+        }
+        if (interim && !finalTranscript) {
+          setInput(interim)
+        }
+        if (finalTranscript.trim() && !sent) {
+          sent = true
+          setInput('')
+          setListening(false)
+          recognitionRef.current = null
+          handleSendRef.current(finalTranscript.trim())
+        }
+      }
+      recognition.onerror = (event: any) => {
+        console.warn('[Voice] Error:', event.error)
+        if (event.error !== 'aborted') {
+          setListening(false)
+          recognitionRef.current = null
+        }
+      }
+      recognition.onend = () => {
+        console.log('[Voice] Ended')
+        if (!sent) {
+          setListening(false)
+          recognitionRef.current = null
+        }
+      }
+
+      recognitionRef.current = recognition
+      recognition.start() // Must be synchronous — browser requires user gesture context
+    } catch (err) {
+      console.warn('[Voice] Failed to start:', err)
+      setListening(false)
+    }
+  }, [])
+
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop()
+      recognitionRef.current = null
+    }
+    setListening(false)
+  }, [])
+
+  // Tab key to toggle
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
+        // Only intercept if not in an input
+        if (document.activeElement?.tagName !== 'INPUT') {
+          e.preventDefault()
+          setChatOpen(!chatOpen)
+        }
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [chatOpen, setChatOpen])
+
+  useEffect(() => {
+    // Small delay ensures DOM has rendered (especially on reopen)
+    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+  }, [chatMessages, chatOpen, agentThinking, listening])
+
+  useEffect(() => {
+    if (chatOpen && chatMessages.length === 0) {
+      // Welcome message — also re-triggers after chat reset
+      addChatMessage({
+        id: 'welcome',
+        role: 'agent',
+        content:
+          "Hello! I'm your Dataverse guide. I can help you explore tables, understand relationships, and even build new apps. What would you like to discover?",
+        timestamp: Date.now(),
+      })
+    }
+    if (chatOpen) {
+      setTimeout(() => inputRef.current?.focus(), 100)
+    }
+  }, [chatOpen, chatMessages.length === 0])
 
   if (!chatOpen) {
     return (
@@ -155,6 +250,20 @@ export function ChatPanel() {
           Dataverse Guide
         </span>
         <button
+          onClick={() => { stopSpeaking(); clearChatMessages() }}
+          title="Reset chat"
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#64748b',
+            cursor: 'pointer',
+            fontSize: '0.75rem',
+            padding: '2px 6px',
+          }}
+        >
+          &#x21BB;
+        </button>
+        <button
           onClick={() => setChatOpen(false)}
           style={{
             background: 'none',
@@ -223,11 +332,27 @@ export function ChatPanel() {
             <span style={{ animation: 'dotPulse 1.4s 0.6s infinite' }}>.</span>
           </div>
         )}
-        <div ref={messagesEndRef} />
+        {listening && (
+          <div
+            style={{
+              alignSelf: 'center',
+              padding: '8px 16px',
+              borderRadius: '20px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              fontSize: '0.75rem',
+              color: '#ef4444',
+              animation: 'pulse 1s ease-in-out infinite',
+            }}
+          >
+            &#x1F399; Listening...
+          </div>
+        )}
+        <div ref={messagesEndRef} style={{ minHeight: '1px' }} />
       </div>
 
       {/* Suggested prompts (only show if few messages) */}
-      {chatMessages.length <= 2 && (
+      {chatMessages.length <= 1 && (
         <div
           style={{
             display: 'flex',
@@ -296,6 +421,26 @@ export function ChatPanel() {
             fontFamily: 'inherit',
           }}
         />
+        {/* Mic button */}
+        <button
+          onClick={listening ? stopListening : startListening}
+          disabled={agentThinking}
+          title={listening ? 'Stop listening' : 'Voice input'}
+          style={{
+            padding: '8px 10px',
+            borderRadius: '10px',
+            background: listening
+              ? 'rgba(239, 68, 68, 0.2)'
+              : 'rgba(255, 255, 255, 0.04)',
+            border: `1px solid ${listening ? 'rgba(239, 68, 68, 0.4)' : 'rgba(255, 255, 255, 0.08)'}`,
+            color: listening ? '#ef4444' : '#64748b',
+            cursor: 'pointer',
+            fontSize: '0.9rem',
+            animation: listening ? 'pulse 1s ease-in-out infinite' : 'none',
+          }}
+        >
+          &#x1F399;
+        </button>
         <button
           onClick={() => handleSend(input)}
           disabled={!input.trim() || agentThinking}

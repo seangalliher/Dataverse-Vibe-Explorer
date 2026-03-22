@@ -45,7 +45,7 @@ export function HoverTooltip() {
         {table.displayName}
       </div>
       <div style={{ color: '#94a3b8', fontSize: 10 }}>
-        {table.domain} &middot; {formatRecordCount(table.recordCount)} records &middot; {table.columns.length} columns
+        {table.domain} &middot; {formatRecordCount(table.recordCount)} records
       </div>
     </div>
   )

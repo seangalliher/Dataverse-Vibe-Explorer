@@ -1,5 +1,6 @@
 import { useAppStore } from '@/store/appStore'
 import { formatRecordCount } from '@/data/dataverse'
+import { getTableDescription, getTableLearnUrl } from '@/data/tableDescriptions'
 
 export function HudOverlay() {
   const { selectedTableId, tables, loaded, setSelectedTable, setRecordPreview, recordPreview } = useAppStore()
@@ -120,9 +121,53 @@ export function HudOverlay() {
             }}
           >
             <Stat label="Records" value={formatRecordCount(selectedTable.recordCount)} />
-            <Stat label="Columns" value={String(selectedTable.columns.length)} />
             <Stat label="Domain" value={selectedTable.domain} />
           </div>
+
+          {/* Table description */}
+          {(() => {
+            const desc = getTableDescription(selectedTable.id)
+            const learnUrl = getTableLearnUrl(selectedTable.id)
+            return (
+              <div
+                style={{
+                  marginBottom: '1rem',
+                  paddingBottom: '0.75rem',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                }}
+              >
+                {desc && (
+                  <p
+                    style={{
+                      fontSize: '0.75rem',
+                      lineHeight: 1.5,
+                      color: '#94a3b8',
+                      margin: 0,
+                    }}
+                  >
+                    {desc}
+                  </p>
+                )}
+                <a
+                  href={learnUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-block',
+                    marginTop: desc ? '0.5rem' : 0,
+                    fontSize: '0.65rem',
+                    color: '#00f0ff',
+                    textDecoration: 'none',
+                    opacity: 0.7,
+                  }}
+                  onMouseOver={(e) => { (e.target as HTMLElement).style.opacity = '1' }}
+                  onMouseOut={(e) => { (e.target as HTMLElement).style.opacity = '0.7' }}
+                >
+                  View on Microsoft Learn &#x2197;
+                </a>
+              </div>
+            )
+          })()}
 
           {/* View Records button */}
           <button
@@ -151,48 +196,6 @@ export function HudOverlay() {
           >
             {recordPreview?.tableId === selectedTable.id ? 'Hide Records' : 'View Records'}
           </button>
-
-          {/* Columns list */}
-          <h3
-            style={{
-              fontSize: '0.65rem',
-              textTransform: 'uppercase',
-              letterSpacing: '0.1em',
-              color: '#64748b',
-              marginBottom: '0.5rem',
-            }}
-          >
-            Columns
-          </h3>
-          <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
-            {selectedTable.columns.map((col) => (
-              <div
-                key={col.name}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '0.35rem 0',
-                  borderBottom: '1px solid rgba(255, 255, 255, 0.03)',
-                  fontSize: '0.8rem',
-                }}
-              >
-                <span style={{ color: '#cbd5e1' }}>{col.displayName}</span>
-                <span
-                  style={{
-                    fontSize: '0.65rem',
-                    color: getDataTypeColor(col.dataType),
-                    fontFamily: 'monospace',
-                    background: 'rgba(255,255,255,0.05)',
-                    padding: '1px 6px',
-                    borderRadius: '4px',
-                  }}
-                >
-                  {col.dataType}
-                </span>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
@@ -223,19 +226,6 @@ function Stat({ label, value }: { label: string; value: string }) {
       </div>
     </div>
   )
-}
-
-function getDataTypeColor(dataType: string): string {
-  const map: Record<string, string> = {
-    string: '#60a5fa',
-    number: '#f59e0b',
-    boolean: '#10b981',
-    datetime: '#a855f7',
-    lookup: '#ec4899',
-    currency: '#f59e0b',
-    memo: '#6366f1',
-  }
-  return map[dataType.toLowerCase()] ?? '#94a3b8'
 }
 
 const kbdStyle: React.CSSProperties = {

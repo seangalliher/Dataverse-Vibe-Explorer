@@ -68,11 +68,11 @@ describe('HoverTooltip', () => {
     expect(screen.getByText('Account')).toBeInTheDocument()
   })
 
-  it('shows domain, record count, and column count', async () => {
+  it('shows domain, record count', async () => {
     useAppStore.setState({ hoveredTableId: 'account' })
     const { HoverTooltip } = await import('@/ui/HoverTooltip')
     render(<HoverTooltip />)
-    // The tooltip text includes domain, record count, columns
+    // The tooltip text includes domain, record count
     const tooltip = screen.getByText(/Core/i)
     expect(tooltip).toBeInTheDocument()
   })
@@ -117,7 +117,6 @@ describe('HudOverlay', () => {
     render(<HudOverlay />)
     expect(screen.getByText('2,450')).toBeInTheDocument()
     expect(screen.getByText('Core')).toBeInTheDocument()
-    expect(screen.getByText('2')).toBeInTheDocument() // column count
   })
 
   it('close button deselects table', async () => {

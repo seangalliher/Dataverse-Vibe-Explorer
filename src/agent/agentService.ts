@@ -4,6 +4,8 @@
  */
 import { useAppStore, type TableNode, type ChatMessage } from '@/store/appStore'
 import { formatRecordCount } from '@/data/dataverse'
+import { getTableDescription } from '@/data/tableDescriptions'
+import { speak } from '@/utils/tts'
 
 export type AgentCommand =
   | { type: 'navigate'; target: string }
@@ -66,14 +68,42 @@ export function parseCommand(message: string): AgentCommand {
 
 /**
  * Find a table by fuzzy name matching.
+ * Handles voice input quirks: trailing punctuation, plurals, filler words.
  */
 function findTable(tables: TableNode[], query: string): TableNode | undefined {
-  const q = query.toLowerCase().replace(/table|entity|the/g, '').trim()
+  const q = query
+    .toLowerCase()
+    .replace(/[.,!?;:'"]+/g, '')          // strip punctuation (voice adds periods)
+    .replace(/\b(table|tables|entity|entities|the|a|an)\b/g, '')  // strip filler words
+    .trim()
+
+  // Generate singular forms for plural handling
+  const singulars = new Set([q])
+  // "opportunities" → "opportunity", "activities" → "activity"
+  if (q.endsWith('ies')) singulars.add(q.slice(0, -3) + 'y')
+  // "processes" → "process", "cases" → "case"
+  if (q.endsWith('es')) singulars.add(q.slice(0, -2))
+  // "accounts" → "account", "leads" → "lead"
+  if (q.endsWith('s')) singulars.add(q.slice(0, -1))
+
+  // For multi-word queries like "sales orders", also singularize the last word
+  if (q.includes(' ')) {
+    const words = q.split(/\s+/)
+    const last = words[words.length - 1]
+    const rest = words.slice(0, -1).join(' ')
+    if (last.endsWith('ies')) singulars.add(rest + ' ' + last.slice(0, -3) + 'y')
+    if (last.endsWith('es')) singulars.add(rest + ' ' + last.slice(0, -2))
+    if (last.endsWith('s')) singulars.add(rest + ' ' + last.slice(0, -1))
+  }
+
+  const matchExact = (name: string) => [...singulars].some((s) => name === s)
+  const matchIncludes = (name: string) => [...singulars].some((s) => name.includes(s))
+
   return (
-    tables.find((t) => t.displayName.toLowerCase() === q) ??
-    tables.find((t) => t.name.toLowerCase() === q) ??
-    tables.find((t) => t.displayName.toLowerCase().includes(q)) ??
-    tables.find((t) => t.name.toLowerCase().includes(q))
+    tables.find((t) => matchExact(t.displayName.toLowerCase())) ??
+    tables.find((t) => matchExact(t.name.toLowerCase())) ??
+    tables.find((t) => matchIncludes(t.displayName.toLowerCase())) ??
+    tables.find((t) => matchIncludes(t.name.toLowerCase()))
   )
 }
 
@@ -92,14 +122,19 @@ export async function executeCommand(
       if (!table) {
         return { response: `I couldn't find a table matching "${command.target}". Try searching for a specific table name.` }
       }
+      const desc = getTableDescription(table.id)
+      const spokenDesc = desc
+        ? `${table.displayName}. ${desc}`
+        : `${table.displayName}. ${formatRecordCount(table.recordCount)} records in the ${table.domain} district.`
       return {
-        response: `Flying to **${table.displayName}** (${formatRecordCount(table.recordCount)} records) in the ${table.domain} district.`,
+        response: `Flying to **${table.displayName}** (${formatRecordCount(table.recordCount)} records) in the ${table.domain} district.${desc ? `\n\n${desc}` : ''}`,
         action: () => {
           setSelectedTable(table.id)
           setFlyToTarget({
             position: [table.position[0], table.position[1] + 8, table.position[2] + 15],
             lookAt: table.position,
           })
+          speak(spokenDesc)
         },
       }
     }
@@ -113,14 +148,20 @@ export async function executeCommand(
       const relCount = relationships.filter(
         (r) => r.sourceTableId === table.id || r.targetTableId === table.id,
       ).length
+      const desc = getTableDescription(table.id)
+      const descBlock = desc ? `\n\n${desc}` : ''
+      const spokenDesc = desc
+        ? `${table.displayName}. ${desc} It has ${formatRecordCount(table.recordCount)} records and ${relCount} relationships.`
+        : `${table.displayName} has ${formatRecordCount(table.recordCount)} records and ${relCount} relationships in the ${table.domain} domain.`
       return {
-        response: `## ${table.displayName}\n\n**Domain:** ${table.domain} | **Records:** ${formatRecordCount(table.recordCount)} | **Relationships:** ${relCount}\n\n**Key Columns:**\n${cols}`,
+        response: `## ${table.displayName}\n\n**Domain:** ${table.domain} | **Records:** ${formatRecordCount(table.recordCount)} | **Relationships:** ${relCount}${descBlock}\n\n**Key Columns:**\n${cols}`,
         action: () => {
           setSelectedTable(table.id)
           setFlyToTarget({
             position: [table.position[0], table.position[1] + 8, table.position[2] + 15],
             lookAt: table.position,
           })
+          speak(spokenDesc)
         },
       }
     }
@@ -170,6 +211,7 @@ export async function executeCommand(
             position: [0, 30, 50],
             lookAt: [0, 0, 0],
           })
+          speak(`Welcome to your Dataverse. You have ${tables.length} tables organized across ${highlights.length} domains with ${relationships.length} relationships. Click any platform to inspect it, or ask me to show you a specific table.`)
         },
       }
     }

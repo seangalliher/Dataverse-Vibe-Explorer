@@ -104,6 +104,7 @@ interface AppState {
   setChatOpen: (open: boolean) => void
   chatMessages: ChatMessage[]
   addChatMessage: (msg: ChatMessage) => void
+  clearChatMessages: () => void
   agentThinking: boolean
   setAgentThinking: (thinking: boolean) => void
 
@@ -200,6 +201,7 @@ export const useAppStore = create<AppState>((set) => ({
   chatMessages: [],
   addChatMessage: (msg) =>
     set((state) => ({ chatMessages: [...state.chatMessages, msg] })),
+  clearChatMessages: () => set({ chatMessages: [] }),
   agentThinking: false,
   setAgentThinking: (thinking) => set({ agentThinking: thinking }),
 

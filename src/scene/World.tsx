@@ -86,6 +86,10 @@ export function World() {
     if (allDiscovered.length > 0) {
       saveCachedTables(allDiscovered).catch(() => {})
     }
+
+    // Update session cache so next refresh includes discovered tables
+    const snap = useAppStore.getState()
+    saveSessionCache(snap.tables, snap.relationships, snap.apps)
   }, [addTables, setIsSyncing, setSyncProgress, setSyncCounts])
 
   // Background record count refresh via bridge
@@ -136,6 +140,10 @@ export function World() {
 
     setSyncProgress(tablesToCount.length, `Complete — ${counts.size} tables with record counts`)
     setIsSyncing(false)
+
+    // Update session cache with latest counts for instant refresh
+    const store = useAppStore.getState()
+    saveSessionCache(store.tables, store.relationships, store.apps)
   }, [setIsSyncing, setSyncProgress, setSyncCounts])
 
   // Expose startDiscovery globally for the agent
@@ -148,9 +156,33 @@ export function World() {
   useEffect(() => {
     const loadSequence = async () => {
       setLoading(10, 'Connecting to Dataverse...')
-      await sleep(500)
 
-      // Try loading from cache first for instant display
+      // ── Fast path: check sessionStorage first (survives soft refresh) ──
+      const sessionCache = loadSessionCache()
+      if (sessionCache) {
+        console.log(`[World] Instant load from session cache (${sessionCache.tables.length} tables, ${sessionCache.relationships.length} rels)`)
+        setLoading(80, 'Restoring from session...')
+        setTables(sessionCache.tables)
+        setRelationships(sessionCache.relationships)
+        if (sessionCache.apps.length > 0) setApps(sessionCache.apps)
+
+        // Load org URL in background
+        loadOrgUrl().then((orgUrl) => {
+          if (orgUrl) {
+            configureDataverse({ orgUrl })
+            useAppStore.getState().setOrgUrl(orgUrl)
+          }
+        })
+
+        setLoading(100, 'Ready')
+        await sleep(200)
+        setLoaded(true)
+        console.log('[World] Session cache hit — skipping all network calls')
+        return
+      }
+
+      // ── Normal path: Dataverse cache or fresh fetch ──
+      await sleep(500)
       setLoading(15, 'Checking cache...')
       const cachedMeta = await loadCachedTables()
 
@@ -202,17 +234,25 @@ export function World() {
       await sleep(200)
       setLoaded(true)
 
-      // Start background discovery of additional tables
-      startDiscovery()
+      // Save to sessionStorage for instant refresh
+      saveSessionCache(sceneGraph.tables, sceneGraph.relationships, appMeta)
 
-      // If we didn't use cache, save the freshly fetched metadata
-      if (!usedCache && !getConfig().useMock) {
-        saveCachedTables(tableMeta).catch(() => {})
-      }
+      if (usedCache) {
+        // Cache hit — skip heavy discovery and counting on this load
+        console.log('[World] Loaded from cache — skipping discovery and count refresh')
+      } else {
+        // First load — discover additional tables and count records
+        startDiscovery()
 
-      // Background: refresh record counts via bridge and update cache
-      if (!getConfig().useMock) {
-        refreshBridgeCounts()
+        // Save the freshly fetched metadata to cache for next time
+        if (!getConfig().useMock) {
+          saveCachedTables(tableMeta).catch(() => {})
+        }
+
+        // Background: refresh record counts via bridge and update cache
+        if (!getConfig().useMock) {
+          refreshBridgeCounts()
+        }
       }
     }
 
@@ -323,4 +363,40 @@ export function World() {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// ── Session cache: instant reload on soft refresh ──
+const SESSION_CACHE_KEY = 'dve_session_cache'
+
+interface SessionCache {
+  tables: TableNode[]
+  relationships: import('@/store/appStore').RelationshipEdge[]
+  apps: import('@/data/metadata').AppMetadata[]
+  timestamp: number
+}
+
+function saveSessionCache(
+  tables: TableNode[],
+  relationships: import('@/store/appStore').RelationshipEdge[],
+  apps: import('@/data/metadata').AppMetadata[],
+) {
+  try {
+    const cache: SessionCache = { tables, relationships, apps, timestamp: Date.now() }
+    sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(cache))
+    console.log(`[SessionCache] Saved ${tables.length} tables, ${relationships.length} rels`)
+  } catch { /* quota exceeded or unavailable */ }
+}
+
+function loadSessionCache(): SessionCache | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_CACHE_KEY)
+    if (!raw) return null
+    const cache: SessionCache = JSON.parse(raw)
+    // Validate basic shape
+    if (!Array.isArray(cache.tables) || cache.tables.length === 0) return null
+    console.log(`[SessionCache] Found ${cache.tables.length} tables (saved ${Math.round((Date.now() - cache.timestamp) / 1000)}s ago)`)
+    return cache
+  } catch {
+    return null
+  }
 }
