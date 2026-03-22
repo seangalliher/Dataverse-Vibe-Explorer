@@ -38,6 +38,7 @@ export interface RelationshipEdge {
 }
 
 export type CameraMode = 'fly' | 'orbit' | 'transition'
+export type ViewMode = 'grid' | 'constellation'
 
 export interface ChatMessage {
   id: string
@@ -85,6 +86,10 @@ interface AppState {
   setCameraMode: (mode: CameraMode) => void
   flyToTarget: { position: [number, number, number]; lookAt: [number, number, number] } | null
   setFlyToTarget: (target: { position: [number, number, number]; lookAt: [number, number, number] } | null) => void
+
+  // View mode
+  viewMode: ViewMode
+  setViewMode: (mode: ViewMode) => void
 
   // UI
   searchOpen: boolean
@@ -184,6 +189,9 @@ export const useAppStore = create<AppState>((set) => ({
   flyToTarget: null,
   setFlyToTarget: (target) => set({ flyToTarget: target, cameraMode: target ? 'transition' : 'fly' }),
 
+  viewMode: 'grid',
+  setViewMode: (mode) => set({ viewMode: mode }),
+
   searchOpen: false,
   setSearchOpen: (open) => set({ searchOpen: open }),
   hudVisible: false,
@@ -259,3 +267,16 @@ export const useAppStore = create<AppState>((set) => ({
       return updates
     }),
 }))
+
+/** Filter tables by active app (shared between World.tsx and TableBrowser.tsx) */
+export function filterByApp(
+  tables: TableNode[],
+  apps: AppMetadata[],
+  activeAppId: string | null,
+): TableNode[] {
+  if (!activeAppId) return tables
+  const app = apps.find((a) => a.id === activeAppId)
+  if (!app || app.associatedTables.length === 0) return tables
+  const associated = new Set(app.associatedTables)
+  return tables.filter((t) => associated.has(t.id))
+}

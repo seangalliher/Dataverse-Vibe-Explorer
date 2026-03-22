@@ -117,6 +117,10 @@
           "entitySetName": "appmodules",
           "logicalName": "appmodule"
         },
+        "appmodulecomponents": {
+          "entitySetName": "appmodulecomponents",
+          "logicalName": "appmodulecomponent"
+        },
         "competitors": {
           "entitySetName": "competitors",
           "logicalName": "competitor"

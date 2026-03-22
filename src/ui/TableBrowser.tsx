@@ -1,7 +1,20 @@
-import { useState, useMemo } from 'react'
-import { useAppStore } from '@/store/appStore'
+import { useState, useMemo, useCallback } from 'react'
+import { useAppStore, filterByApp } from '@/store/appStore'
 import { CDM_DOMAINS, getDomainColors } from '@/utils/colors'
 import type { CDMDomain } from '@/utils/colors'
+
+/** Map app display names to relevant CDM domains (heuristic when bridge can't resolve tables) */
+function getAppDomains(appName: string): CDMDomain[] | null {
+  const n = appName.toLowerCase()
+  if (n.includes('sales')) return ['Sales', 'Core']
+  if (n.includes('customer service') || n.includes('service hub')) return ['Service', 'Core']
+  if (n.includes('field service')) return ['Service', 'Core']
+  if (n.includes('marketing')) return ['Marketing', 'Core']
+  if (n.includes('finance') || n.includes('operations')) return ['Finance', 'Core']
+  if (n.includes('project')) return ['Core']
+  if (n.includes('portal') || n.includes('power pages')) return ['Core', 'Custom']
+  return null // unknown app — don't filter domains
+}
 
 export default function TableBrowser() {
   const tables = useAppStore((s) => s.tables)
@@ -16,6 +29,25 @@ export default function TableBrowser() {
   const showAllTables = useAppStore((s) => s.showAllTables)
   const activeApp = useAppStore((s) => s.activeAppFilter)
   const setActiveApp = useAppStore((s) => s.setActiveAppFilter)
+
+  // When selecting an app, auto-select relevant domain zones
+  const handleAppFilter = useCallback((appId: string | null) => {
+    if (!appId) {
+      // "All" or toggle-off — clear app filter and restore all domains
+      setActiveApp(null)
+      setVisibleDomains(new Set(CDM_DOMAINS))
+      return
+    }
+    const app = apps.find((a) => a.id === appId)
+    setActiveApp(appId)
+    if (app && app.associatedTables.length === 0) {
+      // No table-level data — use domain heuristic from app name
+      const domains = getAppDomains(app.displayName)
+      if (domains) {
+        setVisibleDomains(new Set(domains as CDMDomain[]))
+      }
+    }
+  }, [apps, setActiveApp, setVisibleDomains])
 
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -32,16 +64,7 @@ export default function TableBrowser() {
 
   // Filter the list view (search + app filter)
   const filtered = useMemo(() => {
-    let result = tables
-
-    // Filter by app
-    if (activeApp) {
-      const app = apps.find((a) => a.id === activeApp)
-      if (app) {
-        const associated = new Set(app.associatedTables)
-        result = result.filter((t) => associated.has(t.id))
-      }
-    }
+    let result = filterByApp(tables, apps, activeApp)
 
     // Filter by search
     if (search.trim()) {
@@ -66,13 +89,7 @@ export default function TableBrowser() {
 
   const visibleCount = useMemo(() => {
     let result = tables.filter((t) => visibleDomains.has(t.domain) && !hiddenTableIds.has(t.id))
-    if (activeApp) {
-      const app = apps.find((a) => a.id === activeApp)
-      if (app) {
-        const associated = new Set(app.associatedTables)
-        result = result.filter((t) => associated.has(t.id))
-      }
-    }
+    result = filterByApp(result, apps, activeApp)
     return result.length
   }, [tables, visibleDomains, hiddenTableIds, activeApp, apps])
 
@@ -242,7 +259,7 @@ export default function TableBrowser() {
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             <button
-              onClick={() => setActiveApp(null)}
+              onClick={() => handleAppFilter(null)}
               style={{
                 ...chipStyle,
                 background: !activeApp ? 'rgba(0,255,200,0.15)' : 'rgba(255,255,255,0.03)',
@@ -255,7 +272,7 @@ export default function TableBrowser() {
             {apps.map((a) => (
               <button
                 key={a.id}
-                onClick={() => setActiveApp(activeApp === a.id ? null : a.id)}
+                onClick={() => handleAppFilter(activeApp === a.id ? null : a.id)}
                 style={{
                   ...chipStyle,
                   background: activeApp === a.id ? 'rgba(0,170,255,0.15)' : 'rgba(255,255,255,0.03)',

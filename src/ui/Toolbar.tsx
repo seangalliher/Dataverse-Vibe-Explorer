@@ -32,6 +32,19 @@ export function Toolbar() {
   const preferencesLoaded = useAppStore((s) => s.preferencesLoaded)
   const visibleDomains = useAppStore((s) => s.visibleDomains)
   const hiddenTableIds = useAppStore((s) => s.hiddenTableIds)
+  const viewMode = useAppStore((s) => s.viewMode)
+  const setViewMode = useAppStore((s) => s.setViewMode)
+  const setFlyToTarget = useAppStore((s) => s.setFlyToTarget)
+
+  const toggleConstellation = useCallback(() => {
+    if (viewMode === 'grid') {
+      setViewMode('constellation')
+      setFlyToTarget({ position: [0, 70, 90], lookAt: [0, 55, 0] })
+    } else {
+      setViewMode('grid')
+      setFlyToTarget({ position: [0, 12, 40], lookAt: [0, 0, 0] })
+    }
+  }, [viewMode, setViewMode, setFlyToTarget])
 
   // Load preferences from Dataverse on mount
   useEffect(() => {
@@ -159,6 +172,23 @@ export function Toolbar() {
         gap: '6px',
       }}
     >
+      <button
+        onClick={toggleConstellation}
+        style={{
+          ...toolbarBtnStyle,
+          background: viewMode === 'constellation'
+            ? 'rgba(0, 240, 255, 0.2)'
+            : 'rgba(8, 8, 24, 0.7)',
+          color: viewMode === 'constellation' ? '#00f0ff' : '#64748b',
+          border: viewMode === 'constellation'
+            ? '1px solid rgba(0, 240, 255, 0.4)'
+            : '1px solid rgba(0, 240, 255, 0.12)',
+        }}
+        title={viewMode === 'constellation' ? 'Return to grid view' : 'Constellation view — ERD in the sky'}
+        aria-label="Toggle constellation view"
+      >
+        {viewMode === 'constellation' ? '\u25A6' : '\u2726'}
+      </button>
       <button
         onClick={() => setExpanded(!expanded)}
         style={toolbarBtnStyle}

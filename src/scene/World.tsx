@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { Text } from '@react-three/drei'
-import { useAppStore, type TableNode } from '@/store/appStore'
+import { useAppStore, type TableNode, filterByApp } from '@/store/appStore'
 import { fetchTableMetadata, fetchRelationshipMetadata, fetchAppMetadata, discoverAllTables } from '@/data/metadata'
 import { buildSceneGraph, positionNewTables, getDomainBlockCenter } from '@/data/sceneGraph'
+import { computeConstellationLayout } from '@/data/constellationLayout'
 import { CDM_DOMAINS, getDomainColors } from '@/utils/colors'
 import { getConfig, configureDataverse, refreshRecordCountsViaBridge } from '@/data/dataverse'
 import { loadCachedTables, saveCachedTables, loadOrgUrl, updateCachedRecordCounts } from '@/data/cacheService'
@@ -29,18 +30,13 @@ export function World() {
   const visibleDomains = useAppStore((s) => s.visibleDomains)
   const hiddenTableIds = useAppStore((s) => s.hiddenTableIds)
   const activeAppFilter = useAppStore((s) => s.activeAppFilter)
+  const viewMode = useAppStore((s) => s.viewMode)
   const [vibeState, setVibeState] = useState<VibeCreationState>({ phase: 'idle', appName: '', progress: 0, targetPosition: [0, 0, 0] })
 
   // Filter visible tables
   const visibleTables = useMemo(() => {
     let result = tables.filter((t) => visibleDomains.has(t.domain) && !hiddenTableIds.has(t.id))
-    if (activeAppFilter) {
-      const app = apps.find((a) => a.id === activeAppFilter)
-      if (app) {
-        const associated = new Set(app.associatedTables)
-        result = result.filter((t) => associated.has(t.id))
-      }
-    }
+    result = filterByApp(result, apps, activeAppFilter)
     return result
   }, [tables, visibleDomains, hiddenTableIds, activeAppFilter, apps])
 
@@ -51,6 +47,12 @@ export function World() {
       (r) => visibleIds.has(r.sourceTableId) && visibleIds.has(r.targetTableId),
     )
   }, [relationships, visibleTables])
+
+  // Constellation layout — computed once when toggled, only for tables with relationships
+  const constellationPositions = useMemo(() => {
+    if (viewMode !== 'constellation') return new Map<string, [number, number, number]>()
+    return computeConstellationLayout(visibleTables, visibleRelationships)
+  }, [viewMode, visibleTables, visibleRelationships])
 
   // Background discovery
   const startDiscovery = useCallback(async () => {
@@ -298,24 +300,33 @@ export function World() {
           anchorY="middle"
           outlineWidth={0.02}
           outlineColor="#000000"
-          fillOpacity={visibleDomains.has(domain) ? 0.5 : 0.15}
+          fillOpacity={viewMode === 'constellation' ? 0.1 : visibleDomains.has(domain) ? 0.5 : 0.15}
         >
           {`${domain.toUpperCase()} (${count})`}
         </Text>
       ))}
 
       {/* Table Platforms — only visible ones */}
-      {visibleTables.map((table) => (
-        <Platform
-          key={table.id}
-          id={table.id}
-          name={table.displayName}
-          domain={table.domain}
-          position={table.position}
-          recordCount={table.recordCount}
-          columns={table.columns}
-        />
-      ))}
+      {visibleTables.map((table) => {
+        const constellationPos = constellationPositions.get(table.id)
+        const isConstellation = viewMode === 'constellation' && !!constellationPos
+        const targetPosition = isConstellation
+          ? constellationPos
+          : table.position
+        return (
+          <Platform
+            key={table.id}
+            id={table.id}
+            name={table.displayName}
+            domain={table.domain}
+            position={table.position}
+            targetPosition={targetPosition}
+            isConstellation={isConstellation}
+            recordCount={table.recordCount}
+            columns={table.columns}
+          />
+        )
+      })}
 
       {/* Relationship Beams — only between visible tables */}
       {visibleRelationships.map((rel) => {

@@ -528,6 +528,13 @@ export const dataSourcesInfo = {
     "dataSourceType": "Dataverse",
     "apis": {}
   },
+  "appmodulecomponents": {
+    "tableId": "",
+    "version": "",
+    "primaryKey": "appmodulecomponentid",
+    "dataSourceType": "Dataverse",
+    "apis": {}
+  },
   // ── Bookable Resources ──
   "bookableresources": {
     "tableId": "",

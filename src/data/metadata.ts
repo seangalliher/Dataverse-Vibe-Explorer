@@ -377,7 +377,7 @@ export async function fetchAppMetadata(): Promise<AppMetadata[]> {
     )
 
     if (result && Array.isArray(result) && result.length > 0) {
-      const apps = result.map((a: any) => ({
+      const apps: AppMetadata[] = result.map((a: any) => ({
         id: a.appmoduleid ?? '',
         name: a.uniquename ?? '',
         displayName: a.name ?? '',
@@ -385,8 +385,61 @@ export async function fetchAppMetadata(): Promise<AppMetadata[]> {
         appType: 'model-driven' as const,
         url: a.url ?? '',
         solutionName: 'Default',
-        associatedTables: [],
+        associatedTables: [] as string[],
       }))
+
+      // Fetch associated tables for each app via appmodulecomponent
+      // ComponentType 1 = Entity/Table; objectid = entity MetadataId (GUID)
+      const appEntityGuids = new Map<string, string[]>() // appId → [guid, ...]
+
+      await Promise.all(apps.map(async (app) => {
+        try {
+          const components = await sdkRetrieveMultiple(
+            'appmodulecomponents',
+            `?$select=objectid,componenttype&$filter=_appmoduleidunique_value eq '${app.id}' and componenttype eq 1&$top=200`,
+          )
+          if (components && Array.isArray(components) && components.length > 0) {
+            const guids = components
+              .map((c: any) => (c.objectid ?? '').toLowerCase())
+              .filter(Boolean)
+            appEntityGuids.set(app.id, guids)
+            console.log(`[Dataverse] App "${app.displayName}" has ${guids.length} entity components`)
+          }
+        } catch {
+          // Non-critical
+        }
+      }))
+
+      // Resolve entity MetadataId GUIDs to logical names via EntityDefinitions
+      if (appEntityGuids.size > 0) {
+        try {
+          const entityDefs = await sdkRetrieveMultiple(
+            'EntityDefinitions',
+            '?$select=LogicalName,MetadataId&$filter=IsPrivate eq false&$top=1000',
+          )
+          const records = entityDefs?.data ?? entityDefs?.entities ?? entityDefs?.value ?? (Array.isArray(entityDefs) ? entityDefs : [])
+          if (Array.isArray(records) && records.length > 0) {
+            const guidToName = new Map<string, string>()
+            for (const e of records) {
+              const id = (e.MetadataId ?? e.metadataid ?? '').toLowerCase()
+              const name = e.LogicalName ?? e.logicalname ?? ''
+              if (id && name) guidToName.set(id, name)
+            }
+            for (const app of apps) {
+              const guids = appEntityGuids.get(app.id)
+              if (guids) {
+                app.associatedTables = guids
+                  .map((g) => guidToName.get(g))
+                  .filter((n): n is string => !!n)
+                console.log(`[Dataverse] App "${app.displayName}" resolved ${app.associatedTables.length} table names`)
+              }
+            }
+          }
+        } catch {
+          console.warn('[Dataverse] Could not resolve entity GUIDs to names')
+        }
+      }
+
       if (apps.length > 0) {
         console.log(`[Dataverse] Loaded ${apps.length} apps via SDK`)
         return apps

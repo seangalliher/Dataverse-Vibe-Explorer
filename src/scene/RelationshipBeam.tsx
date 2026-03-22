@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { getDomainColors, type CDMDomain } from '@/utils/colors'
 import { useAppStore } from '@/store/appStore'
+import { livePositions } from './positionRegistry'
 
 interface RelationshipBeamProps {
   sourcePosition: [number, number, number]
@@ -22,35 +23,70 @@ export function RelationshipBeam({
   targetTableId,
 }: RelationshipBeamProps) {
   const lineRef = useRef<THREE.Mesh>(null!)
-  const { selectedTableId, hoveredTableId } = useAppStore()
   const colors = getDomainColors(sourceDomain)
 
-  const isHighlighted =
-    selectedTableId === sourceTableId ||
-    selectedTableId === targetTableId ||
-    hoveredTableId === sourceTableId ||
-    hoveredTableId === targetTableId
-
-  // Build a curved tube between source and target
-  const curve = useMemo(() => {
+  // Build initial curved tube between source and target
+  const curveRef = useRef((() => {
     const start = new THREE.Vector3(...sourcePosition)
     const end = new THREE.Vector3(...targetPosition)
     const mid = new THREE.Vector3().lerpVectors(start, end, 0.5)
-    // Arc upward at the midpoint
-    const dist = start.distanceTo(end)
-    mid.y += dist * 0.2
-
+    mid.y += start.distanceTo(end) * 0.2
     return new THREE.QuadraticBezierCurve3(start, mid, end)
-  }, [sourcePosition, targetPosition])
+  })())
+
+  // Track last known positions to avoid unnecessary geometry rebuilds
+  const lastSrcPos = useRef(new THREE.Vector3(...sourcePosition))
+  const lastTgtPos = useRef(new THREE.Vector3(...targetPosition))
 
   const tubeRadius = type === 'many-to-many' ? 0.04 : 0.025
+
+  // Reusable Vector3 for midpoint calculation (avoids per-frame allocation)
+  const midVec = useRef(new THREE.Vector3())
 
   useFrame(({ clock }) => {
     if (!lineRef.current) return
     const mat = lineRef.current.material as THREE.ShaderMaterial
     mat.uniforms.uTime.value = clock.getElapsedTime()
+
+    // Read highlight state imperatively (avoids re-rendering all beams on hover)
+    const store = useAppStore.getState()
+    const isHighlighted =
+      store.selectedTableId === sourceTableId ||
+      store.selectedTableId === targetTableId ||
+      store.hoveredTableId === sourceTableId ||
+      store.hoveredTableId === targetTableId
     mat.uniforms.uHighlight.value = isHighlighted ? 1.0 : 0.0
+
+    // Read live positions from the registry for animated transitions
+    const liveSrc = livePositions.get(sourceTableId)
+    const liveTgt = livePositions.get(targetTableId)
+    if (!liveSrc || !liveTgt) return
+
+    // Only rebuild geometry if positions have moved significantly
+    const srcDist = lastSrcPos.current.distanceToSquared(liveSrc)
+    const tgtDist = lastTgtPos.current.distanceToSquared(liveTgt)
+    if (srcDist > 0.25 || tgtDist > 0.25) {
+      lastSrcPos.current.copy(liveSrc)
+      lastTgtPos.current.copy(liveTgt)
+
+      // Reuse existing curve object — update control points in place
+      const curve = curveRef.current
+      curve.v0.copy(liveSrc)
+      curve.v2.copy(liveTgt)
+      midVec.current.lerpVectors(liveSrc, liveTgt, 0.5)
+      midVec.current.y += liveSrc.distanceTo(liveTgt) * 0.2
+      curve.v1.copy(midVec.current)
+
+      // Replace tube geometry
+      const oldGeom = lineRef.current.geometry
+      lineRef.current.geometry = new THREE.TubeGeometry(curve, 32, tubeRadius, 6, false)
+      oldGeom.dispose()
+    }
   })
+
+  const initialGeometry = useMemo(() => {
+    return new THREE.TubeGeometry(curveRef.current, 32, tubeRadius, 6, false)
+  }, [])
 
   const uniforms = useMemo(
     () => ({
@@ -58,12 +94,11 @@ export function RelationshipBeam({
       uColor: { value: colors.three.clone() },
       uHighlight: { value: 0 },
     }),
-    [colors],
+    [sourceDomain],
   )
 
   return (
-    <mesh ref={lineRef}>
-      <tubeGeometry args={[curve, 32, tubeRadius, 6, false]} />
+    <mesh ref={lineRef} geometry={initialGeometry}>
       <shaderMaterial
         transparent
         depthWrite={false}

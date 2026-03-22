@@ -1,4 +1,4 @@
-import { useRef, useMemo, useState } from 'react'
+import { useRef, useMemo, useState, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Float, Text } from '@react-three/drei'
 import * as THREE from 'three'
@@ -6,6 +6,8 @@ import type { CDMDomain } from '@/utils/colors'
 import { formatRecordCount } from '@/data/dataverse'
 import { getDomainColors } from '@/utils/colors'
 import { useAppStore } from '@/store/appStore'
+import { damp, dampV3 } from '@/utils/easing'
+import { livePositions } from './positionRegistry'
 import { Pillar } from './Pillar'
 
 interface PlatformProps {
@@ -13,6 +15,8 @@ interface PlatformProps {
   name: string
   domain: CDMDomain
   position: [number, number, number]
+  targetPosition: [number, number, number]
+  isConstellation: boolean
   recordCount: number
   columns: Array<{ name: string; dataType: string }>
 }
@@ -31,12 +35,36 @@ function createHexShape(radius: number): THREE.Shape {
   return shape
 }
 
-export function Platform({ id, name, domain, position, recordCount, columns }: PlatformProps) {
+export function Platform({ id, name, domain, position, targetPosition, isConstellation, recordCount, columns }: PlatformProps) {
   const meshRef = useRef<THREE.Mesh>(null!)
   const glowRef = useRef<THREE.Mesh>(null!)
+  const groupRef = useRef<THREE.Group>(null!)
+  const contentRef = useRef<THREE.Group>(null!)
   const [hovered, setHovered] = useState(false)
 
-  const { selectedTableId, setSelectedTable, setHoveredTable } = useAppStore()
+  // Animated position state
+  const currentPos = useRef(new THREE.Vector3(...position))
+  const targetVec = useRef(new THREE.Vector3(...targetPosition))
+
+  // Animated rotation state: 0 = flat (grid), 1 = upright (constellation)
+  const tiltProgress = useRef(0)
+
+  // Update target when targetPosition prop changes
+  useEffect(() => {
+    targetVec.current.set(...targetPosition)
+  }, [targetPosition])
+
+  // Register initial live position
+  useEffect(() => {
+    if (!livePositions.has(id)) {
+      livePositions.set(id, currentPos.current.clone())
+    }
+    return () => { livePositions.delete(id) }
+  }, [id])
+
+  const selectedTableId = useAppStore((s) => s.selectedTableId)
+  const setSelectedTable = useAppStore((s) => s.setSelectedTable)
+  const setHoveredTable = useAppStore((s) => s.setHoveredTable)
   const isSelected = selectedTableId === id
 
   const colors = getDomainColors(domain)
@@ -56,8 +84,51 @@ export function Platform({ id, name, domain, position, recordCount, columns }: P
     [],
   )
 
-  // Pulse glow on hover/select
-  useFrame(({ clock }) => {
+  // Animate position, tilt, and pulse glow
+  useFrame(({ clock, camera }, delta) => {
+    // Check if position and tilt have settled (skip heavy math when static)
+    const posSettled = currentPos.current.distanceToSquared(targetVec.current) < 0.001
+    const tiltTarget = isConstellation ? 1 : 0
+    const tiltSettled = Math.abs(tiltProgress.current - tiltTarget) < 0.001
+
+    if (!posSettled) {
+      // Smooth position interpolation
+      dampV3(currentPos.current, targetVec.current, 3, delta)
+      if (groupRef.current) {
+        groupRef.current.position.copy(currentPos.current)
+      }
+
+      // Update live position registry for RelationshipBeams
+      const live = livePositions.get(id)
+      if (live) {
+        live.copy(currentPos.current)
+      } else {
+        livePositions.set(id, currentPos.current.clone())
+      }
+    }
+
+    if (!tiltSettled) {
+      // Animate tilt
+      tiltProgress.current = damp(tiltProgress.current, tiltTarget, 3, delta)
+    }
+
+    if (contentRef.current) {
+      // Interpolate X rotation: flat = -PI/2, upright = 0
+      contentRef.current.rotation.x = -Math.PI / 2 * (1 - tiltProgress.current)
+
+      // Y-axis billboard in constellation mode: face the camera
+      if (tiltProgress.current > 0.01 && groupRef.current) {
+        const camPos = camera.position
+        const myPos = currentPos.current
+        const angle = Math.atan2(camPos.x - myPos.x, camPos.z - myPos.z)
+        groupRef.current.rotation.y = damp(groupRef.current.rotation.y, angle, 4, delta)
+      } else if (groupRef.current && Math.abs(groupRef.current.rotation.y) > 0.001) {
+        // Reset rotation when back in grid mode
+        groupRef.current.rotation.y = damp(groupRef.current.rotation.y, 0, 3, delta)
+      }
+    }
+
+    // Pulse glow
     if (!glowRef.current) return
     const t = clock.getElapsedTime()
     const baseIntensity = isSelected ? 0.8 : hovered ? 0.5 : 0.2
@@ -76,11 +147,12 @@ export function Platform({ id, name, domain, position, recordCount, columns }: P
 
   return (
     <Float speed={1.5} rotationIntensity={0.05} floatIntensity={0.3}>
-      <group position={position}>
-        {/* Main hex platform */}
+      <group ref={groupRef} position={position}>
+        {/* Content group handles tilt rotation (flat ↔ upright) */}
+        <group ref={contentRef} rotation={[-Math.PI / 2, 0, 0]}>
+        {/* Main hex platform — no individual rotation, parent group handles it */}
         <mesh
           ref={meshRef}
-          rotation={[-Math.PI / 2, 0, 0]}
           onClick={handleClick}
           onPointerOver={(e) => {
             e.stopPropagation()
@@ -111,7 +183,7 @@ export function Platform({ id, name, domain, position, recordCount, columns }: P
         </mesh>
 
         {/* Glow ring underneath */}
-        <mesh ref={glowRef} rotation={[-Math.PI / 2, 0, -0.15]} position={[0, -0.1, 0]}>
+        <mesh ref={glowRef} rotation={[0, 0, -0.15]} position={[0, 0, -0.1]}>
           <ringGeometry args={[2 * scale - 0.1, 2 * scale + 0.2, 6]} />
           <meshBasicMaterial
             color={colors.primary}
@@ -123,17 +195,17 @@ export function Platform({ id, name, domain, position, recordCount, columns }: P
           />
         </mesh>
 
-        {/* Point light under platform */}
+        {/* Point light behind platform */}
         <pointLight
           color={colors.primary}
           intensity={isSelected ? 3 : hovered ? 2 : 1}
           distance={15}
-          position={[0, -1, 0]}
+          position={[0, 0, -1]}
         />
 
         {/* Table name label */}
         <Text
-          position={[0, 2.5 + pillarData.length * 0.1, 0]}
+          position={[0, 2 * scale + 1.0 + pillarData.length * 0.1, 0.2]}
           fontSize={0.5}
           color={colors.accent}
           anchorX="center"
@@ -146,7 +218,7 @@ export function Platform({ id, name, domain, position, recordCount, columns }: P
 
         {/* Record count badge */}
         <Text
-          position={[0, 2.0 + pillarData.length * 0.1, 0]}
+          position={[0, 2 * scale + 0.5 + pillarData.length * 0.1, 0.2]}
           fontSize={0.25}
           color="#94a3b8"
           anchorX="center"
@@ -160,13 +232,13 @@ export function Platform({ id, name, domain, position, recordCount, columns }: P
           const angle = (i / pillarData.length) * Math.PI * 2
           const r = 1.2 * scale
           const px = Math.cos(angle) * r
-          const pz = Math.sin(angle) * r
+          const py = Math.sin(angle) * r
           return (
             <Pillar
               key={col.name}
               name={col.name}
               dataType={col.dataType}
-              position={[px, 0.3, pz]}
+              position={[px, py, 0.3]}
               domain={domain}
               index={i}
             />
@@ -175,7 +247,7 @@ export function Platform({ id, name, domain, position, recordCount, columns }: P
 
         {/* Selection ring */}
         {isSelected && (
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, 0]}>
+          <mesh position={[0, 0, 0.05]}>
             <ringGeometry args={[2 * scale + 0.3, 2 * scale + 0.6, 6]} />
             <meshBasicMaterial
               color="#ffffff"
@@ -187,6 +259,7 @@ export function Platform({ id, name, domain, position, recordCount, columns }: P
             />
           </mesh>
         )}
+        </group>
       </group>
     </Float>
   )
