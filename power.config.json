@@ -301,6 +301,10 @@
           "entitySetName": "sdkmessagefilters",
           "logicalName": "sdkmessagefilter"
         },
+        "savedqueries": {
+          "entitySetName": "savedqueries",
+          "logicalName": "savedquery"
+        },
         "bookableresources": {
           "entitySetName": "bookableresources",
           "logicalName": "bookableresource"

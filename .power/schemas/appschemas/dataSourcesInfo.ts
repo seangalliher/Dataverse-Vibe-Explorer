@@ -513,6 +513,13 @@ export const dataSourcesInfo = {
     "dataSourceType": "Dataverse",
     "apis": {}
   },
+  "savedqueries": {
+    "tableId": "",
+    "version": "",
+    "primaryKey": "savedqueryid",
+    "dataSourceType": "Dataverse",
+    "apis": {}
+  },
   // ── Apps ──
   "appmodules": {
     "tableId": "",

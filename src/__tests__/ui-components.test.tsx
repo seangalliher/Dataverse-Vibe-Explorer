@@ -107,8 +107,7 @@ describe('HudOverlay', () => {
     const { HudOverlay } = await import('@/ui/HudOverlay')
     render(<HudOverlay />)
     expect(screen.getByText('Account')).toBeInTheDocument()
-    expect(screen.getByText('Account Name')).toBeInTheDocument()
-    expect(screen.getByText('Revenue')).toBeInTheDocument()
+    expect(screen.getByText('account')).toBeInTheDocument()
   })
 
   it('shows record count and domain stats', async () => {
@@ -128,12 +127,11 @@ describe('HudOverlay', () => {
     expect(useAppStore.getState().selectedTableId).toBeNull()
   })
 
-  it('shows data type badges for columns', async () => {
+  it('shows description and learn link', async () => {
     useAppStore.setState({ selectedTableId: 'account' })
     const { HudOverlay } = await import('@/ui/HudOverlay')
     render(<HudOverlay />)
-    expect(screen.getByText('string')).toBeInTheDocument()
-    expect(screen.getByText('currency')).toBeInTheDocument()
+    expect(screen.getByText(/Microsoft Learn/)).toBeInTheDocument()
   })
 })
 

@@ -138,6 +138,7 @@ const KNOWN_ENTITY_SET_NAMES: Record<string, string> = {
   publisher: 'publishers',
   sdkmessage: 'sdkmessages',
   sdkmessagefilter: 'sdkmessagefilters',
+  savedquery: 'savedqueries',
   // Apps
   appmodule: 'appmodules',
   // Bookable Resources
