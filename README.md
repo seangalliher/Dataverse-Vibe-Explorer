@@ -27,14 +27,17 @@ It connects to **live Dataverse metadata** when deployed as a Power Apps Code Ap
 - **CDM Domain Grouping** — Tables are spatially organized by Common Data Model domains (Core, Sales, Service, Marketing, Finance, Custom) with color-coded regions.
 - **Relationship Beams** — One-to-many and many-to-many relationships rendered as glowing beams connecting tables.
 - **Fly-Through Navigation** — WASD + mouse controls for free-flight exploration. Shift to boost, Space to ascend.
-- **Live Metadata Discovery** — Connects to the Power Apps SDK bridge to fetch real table definitions via `getEntityMetadata`, with progressive discovery of 80+ well-known Dataverse/D365 tables.
+- **Live Metadata & Data Access** — 97 registered tables with full CRUD bridge access. Real record counts via `retrieveMultipleRecordsAsync`. Table metadata via `getEntityMetadata` for all tables.
+- **AI Agent with Voice** — Conversational Dataverse guide with navigate, describe, and tour commands. Voice input via Web Speech API and text-to-speech responses via Edge neural voices.
+- **Table Descriptions** — Short descriptions and Microsoft Learn search links for ~100 standard Dataverse tables.
+- **3-Tier Caching** — Session storage (instant soft-refresh) → Dataverse cache table (cross-session) → fresh fetch (first-time).
 - **Minimap** — Overhead 2D minimap with per-table tooltips and click-to-fly navigation.
-- **Table Inspector** — Click any table to see its schema: columns, data types, record counts, and domain classification.
+- **Table Inspector** — Click any table to see record count, domain, description, and a Microsoft Learn link.
+- **Record Preview** — View real records from any registered table with system view selection.
 - **Search** — Quick search to find and fly to any table by name.
 - **Table Browser** — Sidebar panel for browsing, filtering, and sorting all discovered tables.
 - **App Portals** — Model-driven and canvas apps rendered as glowing gateway arches grouped by solution.
 - **Post-Processing** — Bloom, vignette, and chromatic aberration for cinematic atmosphere.
-- **AI Agent (UI)** — Holographic agent avatar with chat panel for conversational Dataverse exploration (agent backend integration point).
 
 ## Tech Stack
 
@@ -94,7 +97,9 @@ The app will be available in your Power Apps environment and automatically conne
 | `Space` | Fly up |
 | `Click` (on table) | Select and inspect table |
 | `Click` (on minimap dot) | Fly to table |
+| `Tab` | Toggle AI chat panel |
 | `/` | Focus search bar |
+| Mic button | Voice commands (in chat panel) |
 
 ## Architecture
 
@@ -102,7 +107,7 @@ The app will be available in your Power Apps environment and automatically conne
 Dataverse API (via Power Apps SDK bridge)
     |
     v
-Metadata Layer ──> getEntityMetadata (only supported SDK action)
+Metadata Layer ──> getEntityMetadata + retrieveMultipleRecordsAsync
     |
     v
 CDM Classifier ──> Maps tables to spatial domains
@@ -114,16 +119,19 @@ Scene Graph ──> Computes 3D positions, sizes, relationships
 React Three Fiber ──> Renders the 3D world
     |
     v
-Interaction Layer ──> Navigation, selection, HUD panels
+Interaction Layer ──> Navigation, selection, HUD, Voice I/O
 ```
 
-### SDK Bridge Limitation
+### SDK Bridge Capabilities
 
-The Power Apps Code Apps SDK bridge currently only supports `executeAsync` with the `getEntityMetadata` action. Data retrieval operations (`retrieveMultipleRecords`, `retrieveRecord`, etc.) return "Unsupported Dataverse action". Because of this:
+The Power Apps Code Apps SDK bridge supports full CRUD operations for **registered tables** (97 tables registered in `power.config.json` and `dataSourcesInfo.ts`):
 
-- **Table metadata** (names, columns, relationships, schemas) comes from **live SDK calls**
-- **Record counts** use **estimated values** based on typical Dataverse/D365 table sizes
-- **App metadata** falls back to **mock data** since `retrieveMultipleRecords` doesn't work
+- **`retrieveMultipleRecordsAsync`** — Works for all registered tables. Uses entity set names (plural).
+- **`retrieveRecordAsync`** — Works for all registered tables.
+- **`createRecordAsync` / `updateRecordAsync` / `deleteRecordAsync`** — Work for all registered tables.
+- **`executeAsync` with `getEntityMetadata`** — Works for ALL tables (no registration needed), but `EntitySetName` and `PrimaryIdAttribute` are undefined in response.
+- **`count: true` option** — Broken. Bridge rejects any query with `$count`.
+- **Direct Web API** — Blocked by CORS inside the Code App iframe.
 
 ## Project Structure
 
@@ -149,13 +157,16 @@ src/
     Minimap.tsx             2D overhead minimap with tooltips
     SearchBar.tsx           Quick search with fly-to
     TableBrowser.tsx        Sidebar table list, filter, sort
-    ChatPanel.tsx           AI agent chat interface
+    RecordPreviewPanel.tsx  Real record data viewer with view selection
+    ChatPanel.tsx           AI agent chat with voice input/output
     SyncProgressBar.tsx     Discovery progress indicator
     LoadingScreen.tsx       Initial loading screen
     Toolbar.tsx             Settings (high contrast, reduce motion)
   data/
-    dataverse.ts            SDK connector, metadata fetch, record estimates
+    dataverse.ts            SDK connector, metadata fetch, CRUD operations
     metadata.ts             Table/relationship/app metadata + mock data
+    tableDescriptions.ts    Table descriptions + Learn links for ~100 tables
+    cacheService.ts         Cache-first loading via dve_tablecache/dve_userpreference
     cdmClassifier.ts        CDM domain classification
     sceneGraph.ts           Spatial layout computation
   controls/
@@ -164,9 +175,10 @@ src/
   store/
     appStore.ts             Zustand global state
   agent/
-    agentService.ts         Agent communication service
+    agentService.ts         Agent commands: navigate, describe, tour, search
     vibeActions.ts          Vibe coding action handlers
   utils/
+    tts.ts                  Text-to-speech via Web Speech API
     colors.ts               CDM domain color palette
     layout.ts               Grid layout algorithms
     easing.ts               Animation easing functions
