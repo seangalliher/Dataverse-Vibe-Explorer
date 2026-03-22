@@ -24,6 +24,382 @@
         "accounts": {
           "entitySetName": "accounts",
           "logicalName": "account"
+        },
+        "contacts": {
+          "entitySetName": "contacts",
+          "logicalName": "contact"
+        },
+        "leads": {
+          "entitySetName": "leads",
+          "logicalName": "lead"
+        },
+        "opportunities": {
+          "entitySetName": "opportunities",
+          "logicalName": "opportunity"
+        },
+        "incidents": {
+          "entitySetName": "incidents",
+          "logicalName": "incident"
+        },
+        "knowledgearticles": {
+          "entitySetName": "knowledgearticles",
+          "logicalName": "knowledgearticle"
+        },
+        "entitlements": {
+          "entitySetName": "entitlements",
+          "logicalName": "entitlement"
+        },
+        "campaigns": {
+          "entitySetName": "campaigns",
+          "logicalName": "campaign"
+        },
+        "lists": {
+          "entitySetName": "lists",
+          "logicalName": "list"
+        },
+        "products": {
+          "entitySetName": "products",
+          "logicalName": "product"
+        },
+        "pricelevels": {
+          "entitySetName": "pricelevels",
+          "logicalName": "pricelevel"
+        },
+        "transactioncurrencies": {
+          "entitySetName": "transactioncurrencies",
+          "logicalName": "transactioncurrency"
+        },
+        "quotes": {
+          "entitySetName": "quotes",
+          "logicalName": "quote"
+        },
+        "salesorders": {
+          "entitySetName": "salesorders",
+          "logicalName": "salesorder"
+        },
+        "invoices": {
+          "entitySetName": "invoices",
+          "logicalName": "invoice"
+        },
+        "activitypointers": {
+          "entitySetName": "activitypointers",
+          "logicalName": "activitypointer"
+        },
+        "annotations": {
+          "entitySetName": "annotations",
+          "logicalName": "annotation"
+        },
+        "systemusers": {
+          "entitySetName": "systemusers",
+          "logicalName": "systemuser"
+        },
+        "teams": {
+          "entitySetName": "teams",
+          "logicalName": "team"
+        },
+        "emails": {
+          "entitySetName": "emails",
+          "logicalName": "email"
+        },
+        "tasks": {
+          "entitySetName": "tasks",
+          "logicalName": "task"
+        },
+        "phonecalls": {
+          "entitySetName": "phonecalls",
+          "logicalName": "phonecall"
+        },
+        "appointments": {
+          "entitySetName": "appointments",
+          "logicalName": "appointment"
+        },
+        "appmodules": {
+          "entitySetName": "appmodules",
+          "logicalName": "appmodule"
+        },
+        "competitors": {
+          "entitySetName": "competitors",
+          "logicalName": "competitor"
+        },
+        "opportunitycloses": {
+          "entitySetName": "opportunitycloses",
+          "logicalName": "opportunityclose"
+        },
+        "ordercloses": {
+          "entitySetName": "ordercloses",
+          "logicalName": "orderclose"
+        },
+        "invoicedetails": {
+          "entitySetName": "invoicedetails",
+          "logicalName": "invoicedetail"
+        },
+        "quotedetails": {
+          "entitySetName": "quotedetails",
+          "logicalName": "quotedetail"
+        },
+        "salesorderdetails": {
+          "entitySetName": "salesorderdetails",
+          "logicalName": "salesorderdetail"
+        },
+        "opportunityproducts": {
+          "entitySetName": "opportunityproducts",
+          "logicalName": "opportunityproduct"
+        },
+        "discounts": {
+          "entitySetName": "discounts",
+          "logicalName": "discount"
+        },
+        "discounttypes": {
+          "entitySetName": "discounttypes",
+          "logicalName": "discounttype"
+        },
+        "contracts": {
+          "entitySetName": "contracts",
+          "logicalName": "contract"
+        },
+        "contractdetails": {
+          "entitySetName": "contractdetails",
+          "logicalName": "contractdetail"
+        },
+        "contracttemplates": {
+          "entitySetName": "contracttemplates",
+          "logicalName": "contracttemplate"
+        },
+        "knowledgebaserecords": {
+          "entitySetName": "knowledgebaserecords",
+          "logicalName": "knowledgebaserecord"
+        },
+        "feedback": {
+          "entitySetName": "feedback",
+          "logicalName": "feedback"
+        },
+        "campaignactivities": {
+          "entitySetName": "campaignactivities",
+          "logicalName": "campaignactivity"
+        },
+        "campaignresponses": {
+          "entitySetName": "campaignresponses",
+          "logicalName": "campaignresponse"
+        },
+        "bulkoperations": {
+          "entitySetName": "bulkoperations",
+          "logicalName": "bulkoperation"
+        },
+        "businessunits": {
+          "entitySetName": "businessunits",
+          "logicalName": "businessunit"
+        },
+        "roles": {
+          "entitySetName": "roles",
+          "logicalName": "role"
+        },
+        "organizations": {
+          "entitySetName": "organizations",
+          "logicalName": "organization"
+        },
+        "connections": {
+          "entitySetName": "connections",
+          "logicalName": "connection"
+        },
+        "connectionroles": {
+          "entitySetName": "connectionroles",
+          "logicalName": "connectionrole"
+        },
+        "territories": {
+          "entitySetName": "territories",
+          "logicalName": "territory"
+        },
+        "queues": {
+          "entitySetName": "queues",
+          "logicalName": "queue"
+        },
+        "queueitems": {
+          "entitySetName": "queueitems",
+          "logicalName": "queueitem"
+        },
+        "subjects": {
+          "entitySetName": "subjects",
+          "logicalName": "subject"
+        },
+        "calendars": {
+          "entitySetName": "calendars",
+          "logicalName": "calendar"
+        },
+        "slas": {
+          "entitySetName": "slas",
+          "logicalName": "sla"
+        },
+        "slakpiinstances": {
+          "entitySetName": "slakpiinstances",
+          "logicalName": "slakpiinstance"
+        },
+        "letters": {
+          "entitySetName": "letters",
+          "logicalName": "letter"
+        },
+        "faxes": {
+          "entitySetName": "faxes",
+          "logicalName": "fax"
+        },
+        "socialactivities": {
+          "entitySetName": "socialactivities",
+          "logicalName": "socialactivity"
+        },
+        "recurringappointmentmasters": {
+          "entitySetName": "recurringappointmentmasters",
+          "logicalName": "recurringappointmentmaster"
+        },
+        "goals": {
+          "entitySetName": "goals",
+          "logicalName": "goal"
+        },
+        "metrics": {
+          "entitySetName": "metrics",
+          "logicalName": "metric"
+        },
+        "rollupfields": {
+          "entitySetName": "rollupfields",
+          "logicalName": "rollupfield"
+        },
+        "goalrollupqueries": {
+          "entitySetName": "goalrollupqueries",
+          "logicalName": "goalrollupquery"
+        },
+        "workflows": {
+          "entitySetName": "workflows",
+          "logicalName": "workflow"
+        },
+        "processsessions": {
+          "entitySetName": "processsessions",
+          "logicalName": "processsession"
+        },
+        "processstages": {
+          "entitySetName": "processstages",
+          "logicalName": "processstage"
+        },
+        "sharepointsites": {
+          "entitySetName": "sharepointsites",
+          "logicalName": "sharepointsite"
+        },
+        "sharepointdocumentlocations": {
+          "entitySetName": "sharepointdocumentlocations",
+          "logicalName": "sharepointdocumentlocation"
+        },
+        "solutions": {
+          "entitySetName": "solutions",
+          "logicalName": "solution"
+        },
+        "publishers": {
+          "entitySetName": "publishers",
+          "logicalName": "publisher"
+        },
+        "sdkmessages": {
+          "entitySetName": "sdkmessages",
+          "logicalName": "sdkmessage"
+        },
+        "sdkmessagefilters": {
+          "entitySetName": "sdkmessagefilters",
+          "logicalName": "sdkmessagefilter"
+        },
+        "bookableresources": {
+          "entitySetName": "bookableresources",
+          "logicalName": "bookableresource"
+        },
+        "bookableresourcebookings": {
+          "entitySetName": "bookableresourcebookings",
+          "logicalName": "bookableresourcebooking"
+        },
+        "bookableresourcecategories": {
+          "entitySetName": "bookableresourcecategories",
+          "logicalName": "bookableresourcecategory"
+        },
+        "characteristics": {
+          "entitySetName": "characteristics",
+          "logicalName": "characteristic"
+        },
+        "ratingmodels": {
+          "entitySetName": "ratingmodels",
+          "logicalName": "ratingmodel"
+        },
+        "ratingvalues": {
+          "entitySetName": "ratingvalues",
+          "logicalName": "ratingvalue"
+        },
+        "msdyn_projects": {
+          "entitySetName": "msdyn_projects",
+          "logicalName": "msdyn_project"
+        },
+        "msdyn_projecttasks": {
+          "entitySetName": "msdyn_projecttasks",
+          "logicalName": "msdyn_projecttask"
+        },
+        "msdyn_resourcerequirements": {
+          "entitySetName": "msdyn_resourcerequirements",
+          "logicalName": "msdyn_resourcerequirement"
+        },
+        "msdyn_timeentries": {
+          "entitySetName": "msdyn_timeentries",
+          "logicalName": "msdyn_timeentry"
+        },
+        "msdyn_expenses": {
+          "entitySetName": "msdyn_expenses",
+          "logicalName": "msdyn_expense"
+        },
+        "msdyn_estimates": {
+          "entitySetName": "msdyn_estimates",
+          "logicalName": "msdyn_estimate"
+        },
+        "msdyn_projectteams": {
+          "entitySetName": "msdyn_projectteams",
+          "logicalName": "msdyn_projectteam"
+        },
+        "msdyn_resourceassignments": {
+          "entitySetName": "msdyn_resourceassignments",
+          "logicalName": "msdyn_resourceassignment"
+        },
+        "msdyn_workorders": {
+          "entitySetName": "msdyn_workorders",
+          "logicalName": "msdyn_workorder"
+        },
+        "msdyn_workorderproducts": {
+          "entitySetName": "msdyn_workorderproducts",
+          "logicalName": "msdyn_workorderproduct"
+        },
+        "msdyn_workorderservices": {
+          "entitySetName": "msdyn_workorderservices",
+          "logicalName": "msdyn_workorderservice"
+        },
+        "msdyn_agreements": {
+          "entitySetName": "msdyn_agreements",
+          "logicalName": "msdyn_agreement"
+        },
+        "msdyn_customerassets": {
+          "entitySetName": "msdyn_customerassets",
+          "logicalName": "msdyn_customerasset"
+        },
+        "msdyn_incidenttypes": {
+          "entitySetName": "msdyn_incidenttypes",
+          "logicalName": "msdyn_incidenttype"
+        },
+        "aiplugins": {
+          "entitySetName": "aiplugins",
+          "logicalName": "aiplugin"
+        },
+        "aipluginoperations": {
+          "entitySetName": "aipluginoperations",
+          "logicalName": "aipluginoperation"
+        },
+        "msdyn_aiconfigurations": {
+          "entitySetName": "msdyn_aiconfigurations",
+          "logicalName": "msdyn_aiconfiguration"
+        },
+        "msdyn_aimodels": {
+          "entitySetName": "msdyn_aimodels",
+          "logicalName": "msdyn_aimodel"
+        },
+        "msdyn_aitemplates": {
+          "entitySetName": "msdyn_aitemplates",
+          "logicalName": "msdyn_aitemplate"
         }
       },
       "environmentVariableName": ""

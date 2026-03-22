@@ -130,6 +130,14 @@ describe('buildSceneGraph', () => {
     expect(coreTables[0].id).toBe('account')
   })
 
+  it('propagates entitySetName, primaryNameAttribute, and primaryIdAttribute', () => {
+    const tables = [makeTable('account', 'Account')]
+    const result = buildSceneGraph(tables, [])
+    expect(result.tables[0].entitySetName).toBe('accounts')
+    expect(result.tables[0].primaryNameAttribute).toBe('name')
+    expect(result.tables[0].primaryIdAttribute).toBe('accountid')
+  })
+
   it('handles many-to-many relationship type', () => {
     const tables = [makeTable('incident', 'Case'), makeTable('knowledgearticle', 'KB Article')]
     const rels = [makeRel('incident', 'knowledgearticle', 'many-to-many')]
@@ -153,7 +161,7 @@ describe('positionNewTables', () => {
 
   it('offsets new tables after existing ones in same domain', () => {
     const existing = [
-      { id: 'account', name: 'account', displayName: 'Account', domain: 'Core' as const, recordCount: 100, position: [0, 0, 0] as [number, number, number], columns: [], relationships: [] },
+      { id: 'account', name: 'account', displayName: 'Account', domain: 'Core' as const, recordCount: 100, position: [0, 0, 0] as [number, number, number], columns: [], relationships: [], entitySetName: 'accounts', primaryNameAttribute: 'name', primaryIdAttribute: 'accountid' },
     ]
     const newMeta = [makeTable('contact', 'Contact')]
     const result = positionNewTables(newMeta, existing)

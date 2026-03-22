@@ -14,10 +14,11 @@ export default function TableBrowser() {
   const hiddenTableIds = useAppStore((s) => s.hiddenTableIds)
   const toggleTableVisibility = useAppStore((s) => s.toggleTableVisibility)
   const showAllTables = useAppStore((s) => s.showAllTables)
+  const activeApp = useAppStore((s) => s.activeAppFilter)
+  const setActiveApp = useAppStore((s) => s.setActiveAppFilter)
 
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [activeApp, setActiveApp] = useState<string | null>(null)
 
   const toggleDomain = (d: CDMDomain) => {
     const next = new Set(visibleDomains)
@@ -64,8 +65,16 @@ export default function TableBrowser() {
   }, [tables])
 
   const visibleCount = useMemo(() => {
-    return tables.filter((t) => visibleDomains.has(t.domain) && !hiddenTableIds.has(t.id)).length
-  }, [tables, visibleDomains, hiddenTableIds])
+    let result = tables.filter((t) => visibleDomains.has(t.domain) && !hiddenTableIds.has(t.id))
+    if (activeApp) {
+      const app = apps.find((a) => a.id === activeApp)
+      if (app) {
+        const associated = new Set(app.associatedTables)
+        result = result.filter((t) => associated.has(t.id))
+      }
+    }
+    return result.length
+  }, [tables, visibleDomains, hiddenTableIds, activeApp, apps])
 
   const flyTo = (tableId: string) => {
     const table = tables.find((t) => t.id === tableId)
@@ -123,7 +132,7 @@ export default function TableBrowser() {
       left: 0,
       bottom: 0,
       width: 340,
-      zIndex: 45,
+      zIndex: 60,
       background: 'rgba(5,5,16,0.95)',
       backdropFilter: 'blur(16px)',
       borderRight: '1px solid rgba(0,255,200,0.15)',

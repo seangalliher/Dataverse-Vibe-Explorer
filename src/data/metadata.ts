@@ -3,7 +3,10 @@
  * Retrieves table definitions, column schemas, and relationship metadata.
  * Uses the Power Apps SDK bridge for authenticated access inside Code Apps.
  */
-import { getConfig, getDataClient, fetchEntityMetadataViaSDK, sdkRetrieveMultiple, fetchRecordCount, getWebApiStatus, getBridgeCountStatus } from './dataverse'
+import {
+  getConfig, getDataClient, fetchEntityMetadataViaSDK, sdkRetrieveMultiple,
+  tryEntityDefinitions, discoverTableNamesViaSdkMessageFilter, shouldExcludeTable,
+} from './dataverse'
 
 export interface TableMetadata {
   logicalName: string
@@ -49,6 +52,161 @@ export interface AppMetadata {
   associatedTables: string[]
 }
 
+/**
+ * Known entity set names for standard Dataverse tables.
+ * The bridge's getEntityMetadata often returns EntitySetName=undefined,
+ * and the naive `logicalName + "s"` fallback produces wrong names for
+ * tables with irregular English plurals (e.g. opportunity → opportunities).
+ */
+const KNOWN_ENTITY_SET_NAMES: Record<string, string> = {
+  // Core CRM
+  account: 'accounts',
+  contact: 'contacts',
+  lead: 'leads',
+  opportunity: 'opportunities',
+  incident: 'incidents',
+  annotation: 'annotations',
+  activitypointer: 'activitypointers',
+  // Sales
+  quote: 'quotes',
+  salesorder: 'salesorders',
+  invoice: 'invoices',
+  product: 'products',
+  pricelevel: 'pricelevels',
+  transactioncurrency: 'transactioncurrencies',
+  competitor: 'competitors',
+  opportunityclose: 'opportunitycloses',
+  orderclose: 'ordercloses',
+  invoicedetail: 'invoicedetails',
+  quotedetail: 'quotedetails',
+  salesorderdetail: 'salesorderdetails',
+  opportunityproduct: 'opportunityproducts',
+  discount: 'discounts',
+  discounttype: 'discounttypes',
+  // Service
+  knowledgearticle: 'knowledgearticles',
+  entitlement: 'entitlements',
+  contract: 'contracts',
+  contractdetail: 'contractdetails',
+  contracttemplate: 'contracttemplates',
+  knowledgebaserecord: 'knowledgebaserecords',
+  feedback: 'feedback',
+  // Marketing
+  campaign: 'campaigns',
+  campaignactivity: 'campaignactivities',
+  campaignresponse: 'campaignresponses',
+  list: 'lists',
+  bulkoperation: 'bulkoperations',
+  // System / Admin
+  systemuser: 'systemusers',
+  team: 'teams',
+  businessunit: 'businessunits',
+  role: 'roles',
+  organization: 'organizations',
+  connection: 'connections',
+  connectionrole: 'connectionroles',
+  territory: 'territories',
+  queue: 'queues',
+  queueitem: 'queueitems',
+  subject: 'subjects',
+  calendar: 'calendars',
+  sla: 'slas',
+  slakpiinstance: 'slakpiinstances',
+  // Activities
+  email: 'emails',
+  phonecall: 'phonecalls',
+  appointment: 'appointments',
+  task: 'tasks',
+  letter: 'letters',
+  fax: 'faxes',
+  socialactivity: 'socialactivities',
+  recurringappointmentmaster: 'recurringappointmentmasters',
+  // Goals
+  goal: 'goals',
+  metric: 'metrics',
+  rollupfield: 'rollupfields',
+  goalrollupquery: 'goalrollupqueries',
+  // Process
+  workflow: 'workflows',
+  processsession: 'processsessions',
+  processstage: 'processstages',
+  // Documents
+  sharepointsite: 'sharepointsites',
+  sharepointdocumentlocation: 'sharepointdocumentlocations',
+  // Solutions
+  solution: 'solutions',
+  publisher: 'publishers',
+  sdkmessage: 'sdkmessages',
+  sdkmessagefilter: 'sdkmessagefilters',
+  // Apps
+  appmodule: 'appmodules',
+  // Bookable Resources
+  bookableresource: 'bookableresources',
+  bookableresourcebooking: 'bookableresourcebookings',
+  bookableresourcecategory: 'bookableresourcecategories',
+  characteristic: 'characteristics',
+  ratingmodel: 'ratingmodels',
+  ratingvalue: 'ratingvalues',
+  // Project Ops (msdyn)
+  msdyn_project: 'msdyn_projects',
+  msdyn_projecttask: 'msdyn_projecttasks',
+  msdyn_resourcerequirement: 'msdyn_resourcerequirements',
+  msdyn_timeentry: 'msdyn_timeentries',
+  msdyn_expense: 'msdyn_expenses',
+  msdyn_estimate: 'msdyn_estimates',
+  msdyn_projectteam: 'msdyn_projectteams',
+  msdyn_resourceassignment: 'msdyn_resourceassignments',
+  // Field Service
+  msdyn_workorder: 'msdyn_workorders',
+  msdyn_workorderproduct: 'msdyn_workorderproducts',
+  msdyn_workorderservice: 'msdyn_workorderservices',
+  msdyn_agreement: 'msdyn_agreements',
+  msdyn_customerasset: 'msdyn_customerassets',
+  msdyn_incidenttype: 'msdyn_incidenttypes',
+  // AI
+  aiplugin: 'aiplugins',
+  aipluginoperation: 'aipluginoperations',
+  msdyn_aiconfiguration: 'msdyn_aiconfigurations',
+  msdyn_aimodel: 'msdyn_aimodels',
+  msdyn_aitemplate: 'msdyn_aitemplates',
+}
+
+/** Resolve entity set name from metadata, known mapping, or fallback */
+function resolveEntitySetName(meta: any, logicalName: string): string {
+  // 1. Use metadata if available
+  if (meta.EntitySetName) return meta.EntitySetName
+  // 2. Use known mapping
+  if (KNOWN_ENTITY_SET_NAMES[logicalName]) return KNOWN_ENTITY_SET_NAMES[logicalName]
+  // 3. Naive pluralization fallback (works for most tables)
+  return `${logicalName}s`
+}
+
+/** Convert SDK metadata response to TableMetadata */
+function sdkMetadataToTableMetadata(meta: any, fallbackName: string): TableMetadata {
+  const logicalName = meta.LogicalName ?? fallbackName
+  return {
+    logicalName,
+    displayName: meta.DisplayName?.UserLocalizedLabel?.Label ?? fallbackName,
+    description: meta.Description?.UserLocalizedLabel?.Label ?? '',
+    entitySetName: resolveEntitySetName(meta, logicalName),
+    primaryIdAttribute: meta.PrimaryIdAttribute ?? `${fallbackName}id`,
+    primaryNameAttribute: meta.PrimaryNameAttribute ?? 'name',
+    recordCount: 0,
+    columns: (meta.Attributes || []).slice(0, 20).map((a: any) => ({
+      logicalName: a.LogicalName ?? '',
+      displayName: a.DisplayName?.UserLocalizedLabel?.Label ?? a.LogicalName ?? '',
+      description: a.Description?.UserLocalizedLabel?.Label ?? '',
+      attributeType: mapAttributeType(a.AttributeType?.toString() ?? 'String'),
+      isRequired: a.RequiredLevel?.Value === 2,
+      maxLength: a.MaxLength,
+      isPrimaryId: a.IsPrimaryId ?? false,
+      isPrimaryName: a.IsPrimaryName ?? false,
+    })),
+    isCustom: meta.IsCustomEntity ?? false,
+    schemaName: meta.SchemaName ?? fallbackName,
+  }
+}
+
 /** Fetch all table definitions from Dataverse */
 export async function fetchTableMetadata(): Promise<TableMetadata[]> {
   if (getConfig().useMock) {
@@ -72,27 +230,7 @@ export async function fetchTableMetadata(): Promise<TableMetadata[]> {
         wellKnownTables.map(async (tableName) => {
           const meta = await fetchEntityMetadataViaSDK(tableName)
           if (!meta) return null
-          return {
-            logicalName: meta.LogicalName ?? tableName,
-            displayName: meta.DisplayName?.UserLocalizedLabel?.Label ?? tableName,
-            description: meta.Description?.UserLocalizedLabel?.Label ?? '',
-            entitySetName: meta.EntitySetName ?? `${tableName}s`,
-            primaryIdAttribute: meta.PrimaryIdAttribute ?? `${tableName}id`,
-            primaryNameAttribute: meta.PrimaryNameAttribute ?? 'name',
-            recordCount: 0,
-            columns: (meta.Attributes || []).slice(0, 20).map((a: any) => ({
-              logicalName: a.LogicalName ?? '',
-              displayName: a.DisplayName?.UserLocalizedLabel?.Label ?? a.LogicalName ?? '',
-              description: a.Description?.UserLocalizedLabel?.Label ?? '',
-              attributeType: mapAttributeType(a.AttributeType?.toString() ?? 'String'),
-              isRequired: a.RequiredLevel?.Value === 2,
-              maxLength: a.MaxLength,
-              isPrimaryId: a.IsPrimaryId ?? false,
-              isPrimaryName: a.IsPrimaryName ?? false,
-            })),
-            isCustom: meta.IsCustomEntity ?? false,
-            schemaName: meta.SchemaName ?? tableName,
-          } as TableMetadata
+          return sdkMetadataToTableMetadata(meta, tableName)
         }),
       )
 
@@ -104,12 +242,6 @@ export async function fetchTableMetadata(): Promise<TableMetadata[]> {
 
       if (results.length > 0) {
         console.log(`[Dataverse] Loaded ${results.length} tables via SDK`)
-        // Fetch record counts sequentially — bail after first failure
-        for (const t of results) {
-          if (getWebApiStatus() === 'blocked' && getBridgeCountStatus() === 'failed') break
-          t.recordCount = await fetchRecordCount(t.logicalName, t.entitySetName, t.primaryIdAttribute)
-        }
-        console.log(`[Dataverse] Record counts loaded`)
         return results
       }
     }
@@ -239,13 +371,12 @@ export async function fetchAppMetadata(): Promise<AppMetadata[]> {
 
   try {
     const result = await sdkRetrieveMultiple(
-      'appmodule',
+      'appmodules',
       '?$select=name,uniquename,description,url,appmoduleid',
     )
 
-    if (result?.entities || result?.value) {
-      const entities = result.entities ?? result.value ?? []
-      const apps = entities.map((a: any) => ({
+    if (result && Array.isArray(result) && result.length > 0) {
+      const apps = result.map((a: any) => ({
         id: a.appmoduleid ?? '',
         name: a.uniquename ?? '',
         displayName: a.name ?? '',
@@ -319,55 +450,26 @@ const DISCOVERABLE_TABLES = [
 ]
 
 /**
- * Discover all available tables from the environment.
- * Fetches in batches and calls the onBatch callback with each batch of results.
- * Returns the total count of successfully discovered tables.
+ * Fetch metadata for a list of table names in batches.
+ * Uses fetchEntityMetadataViaSDK per table, processing in parallel batches.
  */
-export async function discoverAllTables(
-  existingTableNames: Set<string>,
+async function fetchMetadataInBatches(
+  tableNames: string[],
   onBatch: (tables: TableMetadata[]) => void,
   onProgress: (loaded: number, total: number, phase: string) => void,
 ): Promise<number> {
-  // Filter out tables we already have
-  const toDiscover = DISCOVERABLE_TABLES.filter((t) => !existingTableNames.has(t))
-
-  if (toDiscover.length === 0) {
-    onProgress(0, 0, 'All known tables loaded')
-    return 0
-  }
-
-  const BATCH_SIZE = 5
+  const BATCH_SIZE = 8
   let totalLoaded = 0
 
-  for (let i = 0; i < toDiscover.length; i += BATCH_SIZE) {
-    const batch = toDiscover.slice(i, i + BATCH_SIZE)
-    onProgress(i, toDiscover.length, `Discovering tables... (${i}/${toDiscover.length})`)
+  for (let i = 0; i < tableNames.length; i += BATCH_SIZE) {
+    const batch = tableNames.slice(i, i + BATCH_SIZE)
+    onProgress(i, tableNames.length, `Fetching metadata... (${i}/${tableNames.length})`)
 
     const settled = await Promise.allSettled(
       batch.map(async (tableName) => {
         const meta = await fetchEntityMetadataViaSDK(tableName)
         if (!meta) return null
-        return {
-          logicalName: meta.LogicalName ?? tableName,
-          displayName: meta.DisplayName?.UserLocalizedLabel?.Label ?? tableName,
-          description: meta.Description?.UserLocalizedLabel?.Label ?? '',
-          entitySetName: meta.EntitySetName ?? `${tableName}s`,
-          primaryIdAttribute: meta.PrimaryIdAttribute ?? `${tableName}id`,
-          primaryNameAttribute: meta.PrimaryNameAttribute ?? 'name',
-          recordCount: 0,
-          columns: (meta.Attributes || []).slice(0, 20).map((a: any) => ({
-            logicalName: a.LogicalName ?? '',
-            displayName: a.DisplayName?.UserLocalizedLabel?.Label ?? a.LogicalName ?? '',
-            description: a.Description?.UserLocalizedLabel?.Label ?? '',
-            attributeType: mapAttributeType(a.AttributeType?.toString() ?? 'String'),
-            isRequired: a.RequiredLevel?.Value === 2,
-            maxLength: a.MaxLength,
-            isPrimaryId: a.IsPrimaryId ?? false,
-            isPrimaryName: a.IsPrimaryName ?? false,
-          })),
-          isCustom: meta.IsCustomEntity ?? false,
-          schemaName: meta.SchemaName ?? tableName,
-        } as TableMetadata
+        return sdkMetadataToTableMetadata(meta, tableName)
       }),
     )
 
@@ -379,16 +481,81 @@ export async function discoverAllTables(
     }
 
     if (batchResults.length > 0) {
-      // Fetch record counts sequentially — bail after first failure
-      for (const t of batchResults) {
-        if (getWebApiStatus() === 'blocked' && getBridgeCountStatus() === 'failed') break
-        t.recordCount = await fetchRecordCount(t.logicalName, t.entitySetName, t.primaryIdAttribute)
-      }
       totalLoaded += batchResults.length
       onBatch(batchResults)
     }
   }
 
+  return totalLoaded
+}
+
+/**
+ * Discover all available tables from the environment.
+ * Uses a three-phase approach:
+ *   1. Try EntityDefinitions (fastest, single call — probably won't work through bridge)
+ *   2. Query sdkmessagefilters (standard data table with entity names)
+ *   3. Fallback to hardcoded DISCOVERABLE_TABLES list
+ *
+ * Fetches in batches and calls the onBatch callback with each batch of results.
+ * Returns the total count of successfully discovered tables.
+ */
+export async function discoverAllTables(
+  existingTableNames: Set<string>,
+  onBatch: (tables: TableMetadata[]) => void,
+  onProgress: (loaded: number, total: number, phase: string) => void,
+): Promise<number> {
+  // ── Phase 1: Try EntityDefinitions (optimistic, single call) ──
+  if (getDataClient()) {
+    onProgress(0, 0, 'Attempting dynamic table discovery...')
+    const entityDefs = await tryEntityDefinitions()
+    if (entityDefs && entityDefs.length > 0) {
+      const toDiscover = entityDefs
+        .map((e) => e.logicalName)
+        .filter((n) => !existingTableNames.has(n) && !shouldExcludeTable(n))
+      console.log(`[Discovery] Phase 1 (EntityDefinitions): ${entityDefs.length} total, ${toDiscover.length} new`)
+      if (toDiscover.length > 0) {
+        const totalLoaded = await fetchMetadataInBatches(toDiscover, onBatch, onProgress)
+        onProgress(totalLoaded, totalLoaded, `Discovery complete — ${totalLoaded} additional tables found`)
+        return totalLoaded
+      }
+    }
+
+    // ── Phase 2: Discover via sdkmessagefilter ──
+    onProgress(0, 0, 'Discovering tables via SDK message filters...')
+    const filterNames = await discoverTableNamesViaSdkMessageFilter()
+    if (filterNames && filterNames.length > 0) {
+      const toDiscover = filterNames.filter((n) => !existingTableNames.has(n))
+      console.log(`[Discovery] Phase 2 (sdkmessagefilter): ${filterNames.length} unique, ${toDiscover.length} new`)
+      if (toDiscover.length > 0) {
+        const totalLoaded = await fetchMetadataInBatches(toDiscover, onBatch, onProgress)
+        onProgress(totalLoaded, totalLoaded, `Discovery complete — ${totalLoaded} additional tables found`)
+        return totalLoaded
+      }
+    }
+  }
+
+  // ── Phase 3: Fallback to hardcoded list ──
+  console.log('[Discovery] Phase 3 (hardcoded list fallback)')
+  return discoverFromHardcodedList(existingTableNames, onBatch, onProgress)
+}
+
+/**
+ * Fallback discovery using the hardcoded DISCOVERABLE_TABLES list.
+ * This is the original discovery mechanism, kept as a safety net.
+ */
+async function discoverFromHardcodedList(
+  existingTableNames: Set<string>,
+  onBatch: (tables: TableMetadata[]) => void,
+  onProgress: (loaded: number, total: number, phase: string) => void,
+): Promise<number> {
+  const toDiscover = DISCOVERABLE_TABLES.filter((t) => !existingTableNames.has(t))
+
+  if (toDiscover.length === 0) {
+    onProgress(0, 0, 'All known tables loaded')
+    return 0
+  }
+
+  const totalLoaded = await fetchMetadataInBatches(toDiscover, onBatch, onProgress)
   onProgress(toDiscover.length, toDiscover.length, `Discovery complete — ${totalLoaded} additional tables found`)
   return totalLoaded
 }
@@ -675,7 +842,7 @@ function mockTable(
     logicalName,
     displayName,
     description: `${displayName} table`,
-    entitySetName: `${logicalName}s`,
+    entitySetName: KNOWN_ENTITY_SET_NAMES[logicalName] ?? `${logicalName}s`,
     primaryIdAttribute: `${logicalName}id`,
     primaryNameAttribute: columns[0]?.logicalName ?? 'name',
     recordCount,

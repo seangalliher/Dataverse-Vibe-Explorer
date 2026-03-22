@@ -28,13 +28,21 @@ export function World() {
   const setApps = useAppStore((s) => s.setApps)
   const visibleDomains = useAppStore((s) => s.visibleDomains)
   const hiddenTableIds = useAppStore((s) => s.hiddenTableIds)
+  const activeAppFilter = useAppStore((s) => s.activeAppFilter)
   const [vibeState, setVibeState] = useState<VibeCreationState>({ phase: 'idle', appName: '', progress: 0, targetPosition: [0, 0, 0] })
 
   // Filter visible tables
-  const visibleTables = useMemo(
-    () => tables.filter((t) => visibleDomains.has(t.domain) && !hiddenTableIds.has(t.id)),
-    [tables, visibleDomains, hiddenTableIds],
-  )
+  const visibleTables = useMemo(() => {
+    let result = tables.filter((t) => visibleDomains.has(t.domain) && !hiddenTableIds.has(t.id))
+    if (activeAppFilter) {
+      const app = apps.find((a) => a.id === activeAppFilter)
+      if (app) {
+        const associated = new Set(app.associatedTables)
+        result = result.filter((t) => associated.has(t.id))
+      }
+    }
+    return result
+  }, [tables, visibleDomains, hiddenTableIds, activeAppFilter, apps])
 
   // Filter visible relationships (both endpoints must be visible)
   const visibleRelationships = useMemo(() => {
@@ -91,21 +99,28 @@ export function World() {
       check()
     })
 
-    // Load table metadata from cache to get entitySetName and primaryIdAttribute
-    const cachedMeta = await loadCachedTables()
-    if (cachedMeta.length === 0) return
+    // Use current store tables (includes dynamically discovered ones)
+    const currentTables = useAppStore.getState().tables
+    if (currentTables.length === 0) return
 
-    const tablesToCount = cachedMeta.map((t) => ({
-      logicalName: t.logicalName,
+    const tablesToCount = currentTables.map((t) => ({
+      logicalName: t.id,
       entitySetName: t.entitySetName,
       primaryIdAttribute: t.primaryIdAttribute,
     }))
 
     console.log(`[World] Starting background count refresh for ${tablesToCount.length} tables...`)
 
+    // Show counting phase in the sync progress bar
+    setIsSyncing(true)
+    setSyncProgress(0, 'Counting records...')
+    setSyncCounts(0, tablesToCount.length)
+
     const counts = await refreshRecordCountsViaBridge(
       tablesToCount,
       (loaded, total) => {
+        setSyncCounts(loaded, total)
+        setSyncProgress(loaded, `Counting records... (${loaded}/${total})`)
         if (loaded % 10 === 0 || loaded === total) {
           console.log(`[World] Record counts: ${loaded}/${total}`)
         }
@@ -118,7 +133,10 @@ export function World() {
       // Persist to shared cache
       updateCachedRecordCounts(counts).catch(() => {})
     }
-  }, [])
+
+    setSyncProgress(tablesToCount.length, `Complete — ${counts.size} tables with record counts`)
+    setIsSyncing(false)
+  }, [setIsSyncing, setSyncProgress, setSyncCounts])
 
   // Expose startDiscovery globally for the agent
   useEffect(() => {

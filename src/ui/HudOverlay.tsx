@@ -2,7 +2,7 @@ import { useAppStore } from '@/store/appStore'
 import { formatRecordCount } from '@/data/dataverse'
 
 export function HudOverlay() {
-  const { selectedTableId, tables, loaded, setSelectedTable } = useAppStore()
+  const { selectedTableId, tables, loaded, setSelectedTable, setRecordPreview, recordPreview } = useAppStore()
   const selectedTable = tables.find((t) => t.id === selectedTableId)
 
   if (!loaded) return null
@@ -32,13 +32,16 @@ export function HudOverlay() {
           <kbd style={kbdStyle}>WASD</kbd> Move
         </span>
         <span>
-          <kbd style={kbdStyle}>Mouse</kbd> Look
+          <kbd style={kbdStyle}>RMB</kbd> Look
         </span>
         <span>
           <kbd style={kbdStyle}>Shift</kbd> Boost
         </span>
         <span>
           <kbd style={kbdStyle}>Space</kbd> Up
+        </span>
+        <span>
+          <kbd style={kbdStyle}>Scroll</kbd> Zoom
         </span>
         <span>
           <kbd style={kbdStyle}>Click</kbd> Select
@@ -120,6 +123,34 @@ export function HudOverlay() {
             <Stat label="Columns" value={String(selectedTable.columns.length)} />
             <Stat label="Domain" value={selectedTable.domain} />
           </div>
+
+          {/* View Records button */}
+          <button
+            onClick={() => {
+              if (recordPreview?.tableId === selectedTable.id) {
+                setRecordPreview(null)
+              } else {
+                setRecordPreview({ tableId: selectedTable.id, records: [], loading: true })
+              }
+            }}
+            style={{
+              width: '100%',
+              padding: '0.5rem',
+              marginBottom: '1rem',
+              background: recordPreview?.tableId === selectedTable.id
+                ? 'rgba(0, 240, 255, 0.15)'
+                : 'rgba(0, 240, 255, 0.06)',
+              border: '1px solid rgba(0, 240, 255, 0.2)',
+              borderRadius: '6px',
+              color: '#00f0ff',
+              cursor: 'pointer',
+              fontSize: '0.75rem',
+              fontFamily: 'monospace',
+              letterSpacing: '0.05em',
+            }}
+          >
+            {recordPreview?.tableId === selectedTable.id ? 'Hide Records' : 'View Records'}
+          </button>
 
           {/* Columns list */}
           <h3

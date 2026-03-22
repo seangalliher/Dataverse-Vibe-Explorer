@@ -150,18 +150,21 @@ describe('executeCommand', () => {
       recordCount: 2450, position: [0, 1, 0] as [number, number, number],
       columns: [{ name: 'name', displayName: 'Name', dataType: 'string', isRequired: true }],
       relationships: ['contact'],
+      entitySetName: 'accounts', primaryNameAttribute: 'name', primaryIdAttribute: 'accountid',
     },
     {
       id: 'contact', name: 'contact', displayName: 'Contact', domain: 'Core' as const,
       recordCount: 8920, position: [6, 1, 0] as [number, number, number],
       columns: [{ name: 'fullname', displayName: 'Full Name', dataType: 'string', isRequired: true }],
       relationships: ['account'],
+      entitySetName: 'contacts', primaryNameAttribute: 'fullname', primaryIdAttribute: 'contactid',
     },
     {
       id: 'opportunity', name: 'opportunity', displayName: 'Opportunity', domain: 'Sales' as const,
       recordCount: 1850, position: [80, 1, 0] as [number, number, number],
       columns: [{ name: 'name', displayName: 'Topic', dataType: 'string', isRequired: true }],
       relationships: ['account'],
+      entitySetName: 'opportunities', primaryNameAttribute: 'name', primaryIdAttribute: 'opportunityid',
     },
   ]
 

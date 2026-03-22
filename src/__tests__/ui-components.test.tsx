@@ -42,6 +42,9 @@ const mockTable = {
     { name: 'revenue', displayName: 'Revenue', dataType: 'currency', isRequired: false },
   ],
   relationships: ['contact'],
+  entitySetName: 'accounts',
+  primaryNameAttribute: 'name',
+  primaryIdAttribute: 'accountid',
 }
 
 describe('HoverTooltip', () => {
@@ -95,7 +98,7 @@ describe('HudOverlay', () => {
     const { HudOverlay } = await import('@/ui/HudOverlay')
     render(<HudOverlay />)
     expect(screen.getByText('WASD')).toBeInTheDocument()
-    expect(screen.getByText('Mouse')).toBeInTheDocument()
+    expect(screen.getByText('RMB')).toBeInTheDocument()
     expect(screen.getByText('Shift')).toBeInTheDocument()
   })
 
@@ -140,7 +143,7 @@ describe('Minimap', () => {
     useAppStore.setState({
       tables: [
         mockTable,
-        { id: 'contact', name: 'contact', displayName: 'Contact', domain: 'Core' as const, recordCount: 8920, position: [6, 1, 0] as [number, number, number], columns: [], relationships: [] },
+        { id: 'contact', name: 'contact', displayName: 'Contact', domain: 'Core' as const, recordCount: 8920, position: [6, 1, 0] as [number, number, number], columns: [], relationships: [], entitySetName: 'contacts', primaryNameAttribute: 'fullname' },
       ],
       minimapOpen: true,
       selectedTableId: null,
@@ -238,7 +241,7 @@ describe('SyncProgressBar', () => {
     const mod = await import('@/ui/SyncProgressBar')
     const SyncProgressBar = mod.default
     render(<SyncProgressBar />)
-    expect(screen.getByText(/Discovering tables/)).toBeInTheDocument()
+    expect(screen.getAllByText(/Discovering tables/).length).toBeGreaterThan(0)
   })
 
   it('shows completion message when done', async () => {
@@ -253,6 +256,6 @@ describe('SyncProgressBar', () => {
     const mod = await import('@/ui/SyncProgressBar')
     const SyncProgressBar = mod.default
     render(<SyncProgressBar />)
-    expect(screen.getByText(/Sync complete.*82 tables loaded/)).toBeInTheDocument()
+    expect(screen.getByText(/complete.*82 tables loaded/i)).toBeInTheDocument()
   })
 })

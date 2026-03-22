@@ -33,26 +33,34 @@ describe('appStore', () => {
       hiddenTableIds: new Set(),
       preferencesLoaded: false,
       userPreferences: null,
+      recordPreview: null,
     })
   })
 
   describe('tables', () => {
+    const makeNode = (id: string, overrides?: Partial<import('@/store/appStore').TableNode>): import('@/store/appStore').TableNode => ({
+      id, name: id, displayName: id.toUpperCase(), domain: 'Core' as const,
+      recordCount: 0, position: [0, 0, 0], columns: [], relationships: [],
+      entitySetName: `${id}s`, primaryNameAttribute: 'name', primaryIdAttribute: `${id}id`,
+      ...overrides,
+    })
+
     it('setTables replaces all tables', () => {
-      const tables = [{ id: 'a', name: 'a', displayName: 'A', domain: 'Core' as const, recordCount: 1, position: [0, 0, 0] as [number, number, number], columns: [], relationships: [] }]
+      const tables = [makeNode('a', { recordCount: 1 })]
       useAppStore.getState().setTables(tables)
       expect(useAppStore.getState().tables).toEqual(tables)
     })
 
     it('addTables appends unique tables', () => {
-      const t1 = { id: 'a', name: 'a', displayName: 'A', domain: 'Core' as const, recordCount: 1, position: [0, 0, 0] as [number, number, number], columns: [], relationships: [] }
-      const t2 = { id: 'b', name: 'b', displayName: 'B', domain: 'Sales' as const, recordCount: 2, position: [1, 0, 0] as [number, number, number], columns: [], relationships: [] }
+      const t1 = makeNode('a', { recordCount: 1 })
+      const t2 = makeNode('b', { domain: 'Sales' as const, recordCount: 2, position: [1, 0, 0] })
       useAppStore.getState().setTables([t1])
       useAppStore.getState().addTables([t1, t2]) // t1 is duplicate
       expect(useAppStore.getState().tables).toHaveLength(2)
     })
 
     it('addTables does not modify state when all duplicates', () => {
-      const t1 = { id: 'a', name: 'a', displayName: 'A', domain: 'Core' as const, recordCount: 1, position: [0, 0, 0] as [number, number, number], columns: [], relationships: [] }
+      const t1 = makeNode('a', { recordCount: 1 })
       useAppStore.getState().setTables([t1])
       const before = useAppStore.getState().tables
       useAppStore.getState().addTables([t1])
@@ -205,7 +213,7 @@ describe('appStore', () => {
 
   describe('updateTableCounts', () => {
     it('updates record counts by table id', () => {
-      const t1 = { id: 'account', name: 'account', displayName: 'Account', domain: 'Core' as const, recordCount: 0, position: [0, 0, 0] as [number, number, number], columns: [], relationships: [] }
+      const t1 = { id: 'account', name: 'account', displayName: 'Account', domain: 'Core' as const, recordCount: 0, position: [0, 0, 0] as [number, number, number], columns: [], relationships: [], entitySetName: 'accounts', primaryNameAttribute: 'name', primaryIdAttribute: 'accountid' }
       useAppStore.getState().setTables([t1])
       const counts = new Map([['account', 5000]])
       useAppStore.getState().updateTableCounts(counts)
@@ -213,11 +221,36 @@ describe('appStore', () => {
     })
 
     it('leaves unmatched tables unchanged', () => {
-      const t1 = { id: 'account', name: 'account', displayName: 'Account', domain: 'Core' as const, recordCount: 100, position: [0, 0, 0] as [number, number, number], columns: [], relationships: [] }
+      const t1 = { id: 'account', name: 'account', displayName: 'Account', domain: 'Core' as const, recordCount: 100, position: [0, 0, 0] as [number, number, number], columns: [], relationships: [], entitySetName: 'accounts', primaryNameAttribute: 'name', primaryIdAttribute: 'accountid' }
       useAppStore.getState().setTables([t1])
       const counts = new Map([['contact', 999]])
       useAppStore.getState().updateTableCounts(counts)
       expect(useAppStore.getState().tables[0].recordCount).toBe(100)
+    })
+  })
+
+  describe('updateSingleTableCount', () => {
+    it('updates a single table count', () => {
+      const t1 = { id: 'account', name: 'account', displayName: 'Account', domain: 'Core' as const, recordCount: 0, position: [0, 0, 0] as [number, number, number], columns: [], relationships: [], entitySetName: 'accounts', primaryNameAttribute: 'name', primaryIdAttribute: 'accountid' }
+      useAppStore.getState().setTables([t1])
+      useAppStore.getState().updateSingleTableCount('account', 42)
+      expect(useAppStore.getState().tables[0].recordCount).toBe(42)
+    })
+  })
+
+  describe('recordPreview', () => {
+    it('setRecordPreview sets and clears preview', () => {
+      const preview = { tableId: 'account', records: [{ name: 'test' }], loading: false }
+      useAppStore.getState().setRecordPreview(preview)
+      expect(useAppStore.getState().recordPreview).toEqual(preview)
+      useAppStore.getState().setRecordPreview(null)
+      expect(useAppStore.getState().recordPreview).toBeNull()
+    })
+
+    it('setSelectedTable clears recordPreview', () => {
+      useAppStore.getState().setRecordPreview({ tableId: 'account', records: [], loading: false })
+      useAppStore.getState().setSelectedTable('contact')
+      expect(useAppStore.getState().recordPreview).toBeNull()
     })
   })
 

@@ -12,6 +12,15 @@ export interface TableNode {
   position: [number, number, number]
   columns: ColumnInfo[]
   relationships: string[]
+  entitySetName: string
+  primaryNameAttribute: string
+  primaryIdAttribute: string
+}
+
+export interface RecordPreview {
+  tableId: string
+  records: Record<string, unknown>[]
+  loading: boolean
 }
 
 export interface ColumnInfo {
@@ -106,6 +115,15 @@ interface AppState {
   orgUrl: string
   setOrgUrl: (url: string) => void
   updateTableCounts: (counts: Map<string, number>) => void
+  updateSingleTableCount: (tableId: string, count: number) => void
+
+  // Record preview (right-click)
+  recordPreview: RecordPreview | null
+  setRecordPreview: (preview: RecordPreview | null) => void
+
+  // App filter — filters 3D scene to tables belonging to a specific app
+  activeAppFilter: string | null
+  setActiveAppFilter: (appId: string | null) => void
 
   // Persisted user preferences
   preferencesLoaded: boolean
@@ -157,7 +175,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   selectedTableId: null,
   hoveredTableId: null,
-  setSelectedTable: (id) => set({ selectedTableId: id, hudVisible: id !== null }),
+  setSelectedTable: (id) => set({ selectedTableId: id, hudVisible: id !== null, recordPreview: null }),
   setHoveredTable: (id) => set({ hoveredTableId: id }),
 
   cameraMode: 'fly',
@@ -200,6 +218,18 @@ export const useAppStore = create<AppState>((set) => ({
         return newCount !== undefined ? { ...t, recordCount: newCount } : t
       }),
     })),
+  updateSingleTableCount: (tableId, count) =>
+    set((state) => ({
+      tables: state.tables.map((t) =>
+        t.id === tableId ? { ...t, recordCount: count } : t,
+      ),
+    })),
+
+  recordPreview: null,
+  setRecordPreview: (preview) => set({ recordPreview: preview }),
+
+  activeAppFilter: null,
+  setActiveAppFilter: (appId) => set({ activeAppFilter: appId }),
 
   preferencesLoaded: false,
   userPreferences: null,

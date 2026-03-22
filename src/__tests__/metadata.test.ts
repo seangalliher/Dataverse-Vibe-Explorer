@@ -6,9 +6,9 @@ vi.mock('@/data/dataverse', () => ({
   getDataClient: vi.fn().mockReturnValue(null),
   fetchEntityMetadataViaSDK: vi.fn().mockResolvedValue(null),
   sdkRetrieveMultiple: vi.fn().mockResolvedValue(null),
-  fetchRecordCount: vi.fn().mockResolvedValue(0),
-  getWebApiStatus: vi.fn().mockReturnValue('untested'),
-  getBridgeCountStatus: vi.fn().mockReturnValue('untested'),
+  tryEntityDefinitions: vi.fn().mockResolvedValue(null),
+  discoverTableNamesViaSdkMessageFilter: vi.fn().mockResolvedValue(null),
+  shouldExcludeTable: vi.fn().mockReturnValue(false),
 }))
 
 import { fetchTableMetadata, fetchRelationshipMetadata, fetchAppMetadata, fetchColumnMetadata, discoverAllTables } from '@/data/metadata'

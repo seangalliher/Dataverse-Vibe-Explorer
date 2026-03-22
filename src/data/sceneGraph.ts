@@ -20,7 +20,7 @@ export interface SceneGraphResult {
 const CELL_SIZE = 6        // Space between table centers in a block
 const BLOCK_COLUMNS = 10   // Tables per row within a block (wide blocks = fewer rows)
 const STREET_GAP = 16      // Gap (street) between blocks
-const MAX_BLOCK_ROWS = 12  // Reserve space for up to 120 tables per domain
+const MAX_BLOCK_ROWS = 20  // Reserve space for up to 200 tables per domain
 
 // Computed block dimensions
 const BLOCK_WIDTH = BLOCK_COLUMNS * CELL_SIZE   // 60 units
@@ -135,6 +135,9 @@ export function buildSceneGraph(
         position,
         columns,
         relationships: relatedIds,
+        entitySetName: t.entitySetName,
+        primaryNameAttribute: t.primaryNameAttribute,
+        primaryIdAttribute: t.primaryIdAttribute,
       })
     })
   }
@@ -193,6 +196,9 @@ export function positionNewTables(
       position,
       columns,
       relationships: [],
+      entitySetName: t.entitySetName,
+      primaryNameAttribute: t.primaryNameAttribute,
+      primaryIdAttribute: t.primaryIdAttribute,
     })
   }
 

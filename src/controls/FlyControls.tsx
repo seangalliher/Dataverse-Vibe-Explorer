@@ -7,6 +7,7 @@ const MOVE_SPEED = 15
 const BOOST_MULTIPLIER = 2.5
 const LOOK_SPEED = 0.002
 const DAMPING = 5
+const SCROLL_SPEED = 2
 
 /** Shared euler so CameraManager can sync orientation after transitions */
 export const sharedEuler = new THREE.Euler(0, 0, 0, 'YXZ')
@@ -15,39 +16,49 @@ export function FlyControls() {
   const { camera, gl } = useThree()
   const cameraModeRef = useRef(useAppStore.getState().cameraMode)
 
-  // Keep cameraModeRef in sync without re-creating callbacks
+  // Keep cameraModeRef in sync
   useEffect(() => {
     const unsub = useAppStore.subscribe((s) => {
       cameraModeRef.current = s.cameraMode
-      // Release pointer lock when entering a transition
-      if (s.cameraMode === 'transition' && document.pointerLockElement) {
-        document.exitPointerLock()
-      }
     })
     return unsub
   }, [])
 
   const keysRef = useRef<Set<string>>(new Set())
   const velocityRef = useRef(new THREE.Vector3())
-  const isLockedRef = useRef(false)
+  const isLookingRef = useRef(false)
 
-  const onPointerLockChange = useCallback(() => {
-    isLockedRef.current = document.pointerLockElement === gl.domElement
+  const onMouseDown = useCallback((e: MouseEvent) => {
+    if (e.button !== 2) return // right mouse button only
+    if (cameraModeRef.current !== 'fly') return
+    isLookingRef.current = true
+    gl.domElement.style.cursor = 'none'
+  }, [gl])
+
+  const onMouseUp = useCallback((e: MouseEvent) => {
+    if (e.button !== 2) return
+    isLookingRef.current = false
+    gl.domElement.style.cursor = ''
   }, [gl])
 
   const onMouseMove = useCallback((e: MouseEvent) => {
-    if (!isLockedRef.current) return
+    if (!isLookingRef.current) return
     sharedEuler.y -= e.movementX * LOOK_SPEED
     sharedEuler.x -= e.movementY * LOOK_SPEED
     sharedEuler.x = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, sharedEuler.x))
   }, [])
 
-  const onCanvasClick = useCallback(() => {
-    // Only lock pointer when in fly mode (not during transitions)
-    if (!isLockedRef.current && cameraModeRef.current === 'fly') {
-      gl.domElement.requestPointerLock()
-    }
-  }, [gl])
+  const onWheel = useCallback((e: WheelEvent) => {
+    if (cameraModeRef.current !== 'fly') return
+    e.preventDefault()
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
+    const scrollAmount = -e.deltaY * SCROLL_SPEED * 0.01
+    camera.position.addScaledVector(forward, scrollAmount)
+  }, [camera])
+
+  const onContextMenu = useCallback((e: MouseEvent) => {
+    e.preventDefault()
+  }, [])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => keysRef.current.add(e.code.toLowerCase())
@@ -55,9 +66,11 @@ export function FlyControls() {
 
     document.addEventListener('keydown', onKeyDown)
     document.addEventListener('keyup', onKeyUp)
-    document.addEventListener('pointerlockchange', onPointerLockChange)
     document.addEventListener('mousemove', onMouseMove)
-    gl.domElement.addEventListener('click', onCanvasClick)
+    gl.domElement.addEventListener('mousedown', onMouseDown)
+    gl.domElement.addEventListener('mouseup', onMouseUp)
+    gl.domElement.addEventListener('wheel', onWheel, { passive: false })
+    gl.domElement.addEventListener('contextmenu', onContextMenu)
 
     // Set initial camera position
     camera.position.set(0, 12, 40)
@@ -66,11 +79,13 @@ export function FlyControls() {
     return () => {
       document.removeEventListener('keydown', onKeyDown)
       document.removeEventListener('keyup', onKeyUp)
-      document.removeEventListener('pointerlockchange', onPointerLockChange)
       document.removeEventListener('mousemove', onMouseMove)
-      gl.domElement.removeEventListener('click', onCanvasClick)
+      gl.domElement.removeEventListener('mousedown', onMouseDown)
+      gl.domElement.removeEventListener('mouseup', onMouseUp)
+      gl.domElement.removeEventListener('wheel', onWheel)
+      gl.domElement.removeEventListener('contextmenu', onContextMenu)
     }
-  }, [camera, gl, onPointerLockChange, onMouseMove, onCanvasClick])
+  }, [camera, gl, onMouseMove, onMouseDown, onMouseUp, onWheel, onContextMenu])
 
   useFrame((_, delta) => {
     if (cameraModeRef.current !== 'fly') return

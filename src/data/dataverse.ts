@@ -87,8 +87,26 @@ export async function initializeDataverse(): Promise<void> {
       // Initialize SDK data client for bridge-based Dataverse access
       try {
         const { getClient } = await import('@microsoft/power-apps/data')
-        dataClient = getClient({})
-        console.log('[Dataverse] SDK data client ready')
+        const { dataSourcesInfo } = await import('../../.power/schemas/appschemas/dataSourcesInfo')
+        dataClient = getClient(dataSourcesInfo)
+        console.log('[Dataverse] SDK data client ready (with dataSourcesInfo)', Object.keys(dataSourcesInfo))
+
+        // Diagnostic: test a few tables to identify bridge-level access patterns
+        setTimeout(async () => {
+          // Test with ENTITY SET names (plural) — this is what the bridge API expects
+          const testTables = ['accounts', 'contacts', 'opportunities', 'incidents', 'leads']
+          console.log('[Diagnostic] Testing bridge access with entity set names (plural)...')
+          for (const entitySetName of testTables) {
+            try {
+              const r = await dataClient.retrieveMultipleRecordsAsync(entitySetName, `?$top=1`)
+              const ok = r?.success !== false
+              const count = ok ? (r?.data?.length ?? r?.entities?.length ?? r?.value?.length ?? '?') : 'BLOCKED'
+              console.log(`[Diagnostic] ${entitySetName}: ${ok ? 'OK' : 'FAILED'} (${count})`, ok ? '' : JSON.stringify(r).slice(0, 200))
+            } catch (err) {
+              console.log(`[Diagnostic] ${entitySetName}: EXCEPTION`, err)
+            }
+          }
+        }, 3000) // Delay to avoid blocking init
       } catch (err) {
         console.warn('[Dataverse] SDK data client init failed:', err)
       }
@@ -143,9 +161,18 @@ export async function fetchEntityMetadataViaSDK(tableName: string): Promise<any>
         },
       },
     })
-    return result?.data ?? result
+    const meta = result?.data ?? result
+    if (meta) {
+      console.log(`[Metadata] ${tableName}: EntitySetName=${meta.EntitySetName}, PrimaryIdAttribute=${meta.PrimaryIdAttribute}`)
+      // Log response shape once to understand where EntitySetName lives
+      if (meta.EntitySetName === undefined) {
+        const keys = Object.keys(meta).slice(0, 15).join(', ')
+        console.log(`[Metadata] ${tableName} response keys: [${keys}]`)
+      }
+    }
+    return meta
   } catch (err) {
-    console.warn(`[Dataverse] SDK metadata fetch for ${tableName} failed:`, err)
+    console.warn(`[Metadata] SDK metadata fetch for ${tableName} failed:`, err)
     return null
   }
 }
@@ -158,12 +185,142 @@ export async function fetchEntityMetadataViaSDK(tableName: string): Promise<any>
 export async function sdkRetrieveMultiple(tableName: string, options?: string): Promise<any> {
   if (!dataClient) return null
   try {
+    console.log(`[SDK] retrieveMultiple(${tableName}, ${options ?? 'no-options'})`)
     const result = await dataClient.retrieveMultipleRecordsAsync(tableName, options)
-    return result?.data ?? result
+    if (result?.success === false) {
+      // Dump the full error shape to help diagnose per-table failures
+      const errStr = JSON.stringify(result, null, 2)
+      console.warn(`[SDK] ${tableName} → success=false. Full response:`, errStr.slice(0, 1000))
+      // Retry with no options if we had options
+      if (options) {
+        console.log(`[SDK] Retrying ${tableName} with no options`)
+        const retry = await dataClient.retrieveMultipleRecordsAsync(tableName)
+        if (retry?.success === false) {
+          console.warn(`[SDK] ${tableName} retry also failed:`, JSON.stringify(retry).slice(0, 500))
+          return null
+        }
+        const retryRecords = retry?.data ?? retry?.entities ?? retry?.value
+        if (Array.isArray(retryRecords)) return retryRecords
+        if (Array.isArray(retry)) return retry
+        return retry
+      }
+      return null
+    }
+    // Normalize: bridge may return {data: [...]}, {entities: [...]}, {value: [...]}, or raw array
+    const records = result?.data ?? result?.entities ?? result?.value
+    if (Array.isArray(records)) {
+      console.log(`[SDK] ${tableName} → ${records.length} records`)
+      return records
+    }
+    if (Array.isArray(result)) {
+      console.log(`[SDK] ${tableName} → ${result.length} records (raw array)`)
+      return result
+    }
+    console.log(`[SDK] ${tableName} unexpected shape:`, typeof result, result ? Object.keys(result) : 'null')
+    return result
   } catch (err) {
-    console.warn(`[Dataverse] SDK retrieveMultiple for ${tableName} failed:`, err)
+    console.warn(`[SDK] ${tableName} exception:`, err)
     return null
   }
+}
+
+/**
+ * Try to discover all tables via the EntityDefinitions OData metadata endpoint.
+ * This probably won't work through the Power Apps bridge (since EntityDefinitions
+ * is a metadata endpoint, not a data table), but costs one call to try.
+ */
+export async function tryEntityDefinitions(): Promise<Array<{
+  logicalName: string
+  displayName: string
+  entitySetName: string
+  primaryIdAttribute: string
+  primaryNameAttribute: string
+  isCustom: boolean
+}> | null> {
+  if (!dataClient) return null
+  try {
+    const result = await dataClient.retrieveMultipleRecordsAsync(
+      'EntityDefinitions',
+      "?$select=LogicalName,DisplayName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute,IsCustomEntity&$filter=IsPrivate eq false and IsIntersect eq false&$top=1000",
+    )
+    if (result?.success === false) {
+      console.log('[Discovery] EntityDefinitions not available through bridge')
+      return null
+    }
+    const records = result?.data ?? result?.entities ?? result?.value ?? (Array.isArray(result) ? result : [])
+    if (!Array.isArray(records) || records.length === 0) return null
+    console.log(`[Discovery] EntityDefinitions returned ${records.length} tables`)
+    return records.map((r: any) => ({
+      logicalName: r.LogicalName ?? r.logicalname ?? '',
+      displayName: r.DisplayName?.UserLocalizedLabel?.Label ?? r.LogicalName ?? r.logicalname ?? '',
+      entitySetName: r.EntitySetName ?? r.entitysetname ?? '',
+      primaryIdAttribute: r.PrimaryIdAttribute ?? r.primaryidattribute ?? '',
+      primaryNameAttribute: r.PrimaryNameAttribute ?? r.primarynameattribute ?? '',
+      isCustom: r.IsCustomEntity ?? r.iscustomentity ?? false,
+    })).filter((e: any) => e.logicalName && e.entitySetName)
+  } catch {
+    console.log('[Discovery] EntityDefinitions query failed (expected)')
+    return null
+  }
+}
+
+/**
+ * Discover table logical names via the sdkmessagefilter table.
+ * This is a standard data table that maps SDK messages to entities.
+ * Each row has a primaryobjecttypecode field with the entity logical name.
+ */
+export async function discoverTableNamesViaSdkMessageFilter(): Promise<string[] | null> {
+  if (!dataClient) return null
+  try {
+    const result = await sdkRetrieveMultiple(
+      'sdkmessagefilters',
+      '?$select=primaryobjecttypecode&$top=5000',
+    )
+    if (!result) return null
+    const records = Array.isArray(result) ? result : []
+    if (records.length === 0) return null
+
+    const names = new Set<string>()
+    for (const r of records) {
+      const name = r.primaryobjecttypecode
+      if (name && typeof name === 'string' && name !== 'none') {
+        names.add(name)
+      }
+    }
+    const tableNames = [...names].filter((n) => !shouldExcludeTable(n))
+    console.log(`[Discovery] sdkmessagefilter returned ${names.size} unique entities, ${tableNames.length} after filtering`)
+    return tableNames
+  } catch {
+    console.warn('[Discovery] sdkmessagefilter query failed')
+    return null
+  }
+}
+
+/**
+ * Tables to exclude from discovery — internal system tables that add noise.
+ */
+const EXCLUDED_TABLE_PREFIXES = [
+  'principalobject', 'audit', 'plugintracelog', 'asyncoperation',
+  'bulkdeletefailure', 'importlog', 'subscriptionmanuallytrackedobject',
+  'subscriptionsyncinfo', 'subscriptiontrackingdeletedobject',
+  'mailboxtrackingfolder', 'duplicaterecord', 'userentityinstancedata',
+  'userentityuisettings', 'systemuserbusinessunitentitymap',
+]
+
+const EXCLUDED_TABLES = new Set([
+  'postfollow', 'postregarding', 'postcomment', 'post',
+  'traceregarding', 'tracelog',
+  'workflowlog', 'workflowwaitsubscription',
+  'fieldsecurityprofile', 'fieldpermission',
+  'importdata', 'importentitymapping', 'importfile', 'import',
+  'imagedescriptor', 'ribboncommand', 'ribbonrule', 'ribbondiff',
+  'savedqueryvisualization', 'userqueryvisualization',
+  'statusmap', 'stringmap', 'attributemap', 'entitymap',
+])
+
+export function shouldExcludeTable(logicalName: string): boolean {
+  if (EXCLUDED_TABLES.has(logicalName)) return true
+  return EXCLUDED_TABLE_PREFIXES.some((p) => logicalName.startsWith(p))
 }
 
 /**
@@ -196,13 +353,23 @@ export async function dataverseFetch<T>(endpoint: string): Promise<T> {
 // Tracks whether bridge-based record counts are available
 let bridgeCountStatus: 'untested' | 'available' | 'failed' = 'untested'
 
+// Track which tables have real (bridge/WebAPI) counts vs estimate fallbacks
+const verifiedCountTables = new Set<string>()
+
 export function getBridgeCountStatus() {
   return bridgeCountStatus
 }
 
+export function isCountVerified(logicalName: string): boolean {
+  return verifiedCountTables.has(logicalName)
+}
+
 /**
  * Fetch a record count via the SDK bridge by selecting only primary IDs.
- * Pages through results for exact counts. Returns null if the bridge call fails.
+ * Uses sdkRetrieveMultiple for consistent response normalization.
+ * IMPORTANT: The bridge's retrieveMultipleRecordsAsync expects the entity
+ * **set name** (plural, e.g. 'accounts'), NOT the logical name ('account').
+ * Returns null if the bridge call fails.
  */
 async function fetchCountViaBridge(
   entitySetName: string,
@@ -212,20 +379,13 @@ async function fetchCountViaBridge(
 
   try {
     const PAGE_SIZE = 5000
-    let total = 0
-    let skipToken: string | undefined
 
-    // First page
-    const r = await dataClient.retrieveMultipleRecordsAsync(entitySetName, {
-      top: PAGE_SIZE,
-      select: [primaryIdAttribute],
-    })
+    // Use entity set name (plural) — bridge expects entity set name, not logical name
+    const query = `?$select=${primaryIdAttribute}&$top=${PAGE_SIZE}`
+    const records = await sdkRetrieveMultiple(entitySetName, query)
 
-    if (!r.success) {
-      if (bridgeCountStatus === 'untested') {
-        bridgeCountStatus = 'failed'
-        console.warn('[Dataverse] Bridge record counts unavailable')
-      }
+    if (!records) {
+      console.warn(`[Dataverse] Bridge count returned null for ${entitySetName}`)
       return null
     }
 
@@ -233,23 +393,12 @@ async function fetchCountViaBridge(
       bridgeCountStatus = 'available'
     }
 
-    total += r.data?.length ?? 0
-    skipToken = r.skipToken
-
-    // Page through remaining records
-    while (skipToken && total < 100_000) {
-      const next = await dataClient.retrieveMultipleRecordsAsync(entitySetName, {
-        top: PAGE_SIZE,
-        select: [primaryIdAttribute],
-        skipToken,
-      })
-      if (!next.success || !next.data?.length) break
-      total += next.data.length
-      skipToken = next.skipToken
-    }
+    const total = Array.isArray(records) ? records.length : 0
+    console.log(`[Dataverse] Count ${entitySetName}: ${total}`)
 
     return total
-  } catch {
+  } catch (err) {
+    console.warn(`[Dataverse] Bridge count exception for ${entitySetName}:`, err)
     return null
   }
 }
@@ -265,7 +414,14 @@ export async function refreshRecordCountsViaBridge(
   const counts = new Map<string, number>()
   if (!dataClient || config.useMock) return counts
 
-  bridgeCountStatus = 'untested'
+  // Diagnostic: dump all table entity set names and primary IDs
+  console.log(`[BridgeCounts] Starting count refresh for ${tables.length} tables:`)
+  for (const t of tables.slice(0, 30)) {
+    console.log(`  ${t.logicalName} → entitySet=${t.entitySetName}, idAttr=${t.primaryIdAttribute}`)
+  }
+  if (tables.length > 30) console.log(`  ... and ${tables.length - 30} more`)
+
+  const failed: string[] = []
 
   for (let i = 0; i < tables.length; i++) {
     const t = tables[i]
@@ -274,13 +430,22 @@ export async function refreshRecordCountsViaBridge(
     const count = await fetchCountViaBridge(t.entitySetName, t.primaryIdAttribute)
     if (count !== null) {
       counts.set(t.logicalName, count)
+    } else {
+      failed.push(t.logicalName)
     }
 
-    // If first attempt failed, stop trying
-    if ((bridgeCountStatus as string) === 'failed') break
+    // If bridge is confirmed broken at the mechanism level (not per-table), stop trying
+    // Note: bridgeCountStatus is never set to 'failed' by per-table failures
+    if (bridgeCountStatus === 'failed') break
   }
 
   onProgress?.(tables.length, tables.length)
+
+  if (failed.length > 0) {
+    console.log(`[BridgeCounts] Failed tables (${failed.length}): ${failed.join(', ')}`)
+  }
+  console.log(`[BridgeCounts] Succeeded: ${counts.size}/${tables.length}`)
+
   return counts
 }
 
@@ -497,16 +662,20 @@ async function fetchCountViaWebAPI(entitySetName: string): Promise<number | null
 
 /**
  * Return a record count for a table.
- * Priority: bridge (Code Apps) > Web API (standalone) > estimates.
+ * Priority: bridge (Code Apps) > Web API (standalone) > 0 (unknown).
+ * Estimates are only used in demo/mock mode — never when a real counting mechanism is available.
  */
 export async function fetchRecordCount(logicalName: string, entitySetName: string, primaryIdAttr?: string): Promise<number> {
   if (config.useMock) return 0
 
-  // Try bridge if inside Code Apps
-  if (dataClient && bridgeCountStatus !== 'failed') {
+  // Try bridge if inside Code Apps — use entity set name (bridge expects plural form)
+  if (dataClient) {
     const idAttr = primaryIdAttr ?? `${logicalName}id`
     const count = await fetchCountViaBridge(entitySetName, idAttr)
-    if (count !== null) return count
+    if (count !== null) {
+      verifiedCountTables.add(logicalName)
+      return count
+    }
   }
 
   // Try Web API if org URL is set
@@ -515,7 +684,13 @@ export async function fetchRecordCount(logicalName: string, entitySetName: strin
     if (count !== null) return count
   }
 
-  // Fall back to estimates
+  // If bridge or Web API is working, return 0 (will be filled in by background refresh)
+  // Don't use fake estimates when a real counting mechanism is available
+  if (bridgeCountStatus === 'available' || webApiStatus === 'available') {
+    return 0
+  }
+
+  // Fall back to estimates only when no counting mechanism is available at all
   const estimate = ESTIMATED_COUNTS[logicalName]
   if (estimate !== undefined) return estimate
 
@@ -526,10 +701,14 @@ export async function fetchRecordCount(logicalName: string, entitySetName: strin
 
 /**
  * Format a record count for display.
- * Shows "est." prefix when using estimates, no prefix for real counts (bridge or Web API).
+ * Shows "—" for unknown (0) in live mode, "est." prefix for estimates, plain number for real counts.
  */
 export function formatRecordCount(count: number): string {
-  if (count === 0) return '0'
+  if (count === 0) {
+    // In live mode, 0 means "not yet counted"
+    if (!config.useMock) return '\u2014'
+    return '0'
+  }
   if (!config.useMock && webApiStatus !== 'available' && bridgeCountStatus !== 'available') {
     return `est. ${count.toLocaleString()}`
   }

@@ -15,13 +15,19 @@ import { Toolbar } from '@/ui/Toolbar'
 import SyncProgressBar from '@/ui/SyncProgressBar'
 import TableBrowser from '@/ui/TableBrowser'
 import { HoverTooltip } from '@/ui/HoverTooltip'
+import { RecordPreviewPanel } from '@/ui/RecordPreviewPanel'
 import { useAppStore } from '@/store/appStore'
+import { useOnDemandCount } from '@/hooks/useOnDemandCount'
 
 export default function App() {
   const loaded = useAppStore((s) => s.loaded)
+  useOnDemandCount()
 
   return (
-    <div style={{ width: '100vw', height: '100vh', background: '#050510' }}>
+    <div
+      style={{ width: '100vw', height: '100vh', background: '#050510' }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <Canvas
         gl={{
           antialias: true,
@@ -65,6 +71,7 @@ export default function App() {
       {loaded && (
         <>
           <HudOverlay />
+          <RecordPreviewPanel />
           <SearchBar />
           <Minimap />
           <ChatPanel />
